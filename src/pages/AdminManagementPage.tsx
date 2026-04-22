@@ -34,6 +34,7 @@ export default function AdminManagementPage() {
   const [inviteName, setInviteName] = useState("");
   const [inviteRole, setInviteRole] = useState("admin");
   const [removingUserId, setRemovingUserId] = useState("");
+  const [pendingRemoveRow, setPendingRemoveRow] = useState<AdminUserRow | null>(null);
 
   const isSelf = (row: AdminUserRow) => row.user_id === user?.id;
 
@@ -268,6 +269,7 @@ export default function AdminManagementPage() {
       setError(invokeError instanceof Error ? invokeError.message : "Remove failed.");
     } finally {
       setRemovingUserId("");
+      setPendingRemoveRow(null);
     }
   };
 
@@ -530,7 +532,7 @@ export default function AdminManagementPage() {
                   <button
                     type="button"
                     className="inline-flex h-10 items-center gap-2 rounded-full border border-[#a941352e] bg-white px-4 text-sm font-medium text-[#a94135] transition-colors hover:bg-[rgba(169,65,53,0.08)] disabled:cursor-not-allowed disabled:opacity-50"
-                    onClick={() => handleRemove(row)}
+                    onClick={() => setPendingRemoveRow(row)}
                     disabled={busy || removingUserId === row.user_id || isSelf(row)}
                     title={isSelf(row) ? "You cannot remove yourself" : "Remove admin"}
                   >
@@ -543,6 +545,49 @@ export default function AdminManagementPage() {
           </div>
         )}
       </section>
+
+      {pendingRemoveRow ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-[rgba(47,42,36,0.34)] px-4 py-6 backdrop-blur-[2px]">
+          <div className="w-full max-w-md rounded-[28px] border border-[#e3d4c6] bg-[rgba(255,253,249,0.98)] p-5 shadow-[0_24px_70px_rgba(65,43,27,0.18)]">
+            <div className="grid gap-2">
+              <div className="text-xs font-medium tracking-[0.18em] text-[#7b6d5f] uppercase">
+                Confirm remove
+              </div>
+              <h3 className="text-2xl font-semibold tracking-tight text-[#2f2a24]">
+                Remove this admin?
+              </h3>
+              <p className="text-sm leading-6 text-[#7b6d5f]">
+                {pendingRemoveRow.display_name || pendingRemoveRow.email || pendingRemoveRow.user_id}
+                {" "}will lose access to the admin web.
+              </p>
+            </div>
+
+            <div className="mt-5 flex flex-wrap justify-end gap-3">
+              <button
+                type="button"
+                className="inline-flex h-11 items-center justify-center rounded-full border border-[#e3d4c6] bg-white px-4 text-sm font-medium text-[#7b6d5f] transition-colors hover:bg-[#f7efe6] hover:text-[#2f2a24]"
+                onClick={() => setPendingRemoveRow(null)}
+                disabled={busy}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-full border border-[#a941352e] bg-white px-4 text-sm font-medium text-[#a94135] transition-colors hover:bg-[rgba(169,65,53,0.08)] disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => {
+                  const row = pendingRemoveRow;
+                  if (!row) return;
+                  void handleRemove(row);
+                }}
+                disabled={busy || removingUserId === pendingRemoveRow.user_id || isSelf(pendingRemoveRow)}
+              >
+                <Trash2 size={16} strokeWidth={2} />
+                {removingUserId === pendingRemoveRow.user_id ? "Removing..." : "Remove admin"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
