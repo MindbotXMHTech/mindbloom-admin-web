@@ -1,0 +1,31 @@
+project_id = "mindbloom-admin-web"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+extra_search_path = ["public"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://localhost:5173"]
+
+[realtime]
+enabled = true
+
+[storage]
+enabled = true
+
+[functions.admin-actions]
+verify_jwt = false
