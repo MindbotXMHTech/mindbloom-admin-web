@@ -49,12 +49,15 @@ Before those actions work in a deployed environment, set the function secrets an
 supabase secrets set \
   SUPABASE_URL=YOUR_SUPABASE_URL \
   SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY \
-  SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_KEY
+  SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_KEY \
+  ADMIN_APP_URL=https://admin.mindbloom-wellness.com
 
 supabase functions deploy admin-actions --project-ref YOUR_PROJECT_REF
 ```
 
 If the admin page shows `Failed to send a request to the Edge Function`, the function is usually not deployed yet or the secrets are missing.
+
+The invite email should redirect to the admin app's password reset page. If you change the admin domain, update `ADMIN_APP_URL` and add the matching redirect URL in Supabase Auth settings.
 
 ## Seed content
 
