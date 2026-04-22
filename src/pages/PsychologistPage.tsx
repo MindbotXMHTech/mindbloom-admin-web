@@ -7,6 +7,7 @@ import {
   adminSecondaryButtonClass,
   adminIconButtonClass,
 } from "../components/ui/adminButtonStyles";
+import { resolvePsychologistPhotoUrl } from "../assets/images/psychologists";
 import {
   formatPsychologistName,
   formatLicenseNumber,
@@ -261,7 +262,7 @@ export default function PsychologistPage() {
                     <GripVertical size={16} strokeWidth={2} />
                   </button>
                   <img
-                    src={row.photo_url}
+                    src={resolvePsychologistPhotoUrl(row.photo_url)}
                     alt={formatPsychologistName(row)}
                     className="h-16 w-16 rounded-2xl border border-[#e3d4c6] object-cover object-top"
                   />

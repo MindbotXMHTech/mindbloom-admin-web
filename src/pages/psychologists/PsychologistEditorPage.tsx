@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { ArrowLeft, ImageUp, Save, Trash2 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
+import { resolvePsychologistPhotoUrl } from "../../assets/images/psychologists";
 import {
   emptyPsychologistForm,
   formatLicenseNumber,
@@ -95,7 +96,7 @@ export default function PsychologistEditorPage() {
       return () => URL.revokeObjectURL(localPreviewUrl);
     }
 
-    setPhotoPreviewUrl(form.photo_url || PLACEHOLDER_PHOTO);
+    setPhotoPreviewUrl(resolvePsychologistPhotoUrl(form.photo_url) || PLACEHOLDER_PHOTO);
     return undefined;
   }, [photoFile, form.photo_url]);
 
