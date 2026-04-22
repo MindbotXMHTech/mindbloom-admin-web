@@ -13,16 +13,8 @@ type OverviewCounts = {
 };
 
 const quickActions = [
-  {
-    title: "Open articles",
-    description: "Review and update blog content.",
-    to: "/blog",
-  },
-  {
-    title: "Create article",
-    description: "Start a new blog post from scratch.",
-    to: "/blog/create",
-  },
+  { title: "Open articles", description: "Review and update blog content.", to: "/blog" },
+  { title: "Create article", description: "Start a new blog post from scratch.", to: "/blog/create" },
   {
     title: "Manage psychologists",
     description: "Set up therapist profiles and availability.",
@@ -56,30 +48,26 @@ export default function DashboardPage() {
         { data: postsData, error: postsError },
         { count: psychologistCount, error: psychologistError },
         { data: adminData, error: adminError },
-      ] =
-        await Promise.all([
-          supabase
-            .from("blog_posts")
-            .select("id,status,slug,title_th,title_en,updated_at")
-            .order("updated_at", { ascending: false })
-            .order("sort_order", { ascending: true }),
-          supabase
-            .from("psychologists")
-            .select("id", { count: "exact", head: true }),
-          user?.id
-            ? supabase
-                .from("admin_users")
-                .select("display_name,email,needs_password_setup")
-                .eq("user_id", user.id)
-                .maybeSingle()
-            : Promise.resolve({ data: null, error: null }),
-        ]);
+      ] = await Promise.all([
+        supabase
+          .from("blog_posts")
+          .select("id,status,slug,title_th,title_en,updated_at")
+          .order("updated_at", { ascending: false })
+          .order("sort_order", { ascending: true }),
+        supabase.from("psychologists").select("id", { count: "exact", head: true }),
+        user?.id
+          ? supabase
+              .from("admin_users")
+              .select("display_name,email,needs_password_setup")
+              .eq("user_id", user.id)
+              .maybeSingle()
+          : Promise.resolve({ data: null, error: null }),
+      ]);
 
       if (!active) return;
 
       if (postsError) {
         setError(postsError.message);
-        setRecentPosts([]);
       } else {
         const posts = (postsData ?? []) as BlogPost[];
         setRecentPosts(posts);
@@ -121,7 +109,7 @@ export default function DashboardPage() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [user]);
 
   const greeting = useMemo(() => {
     const hour = new Date().getHours();
@@ -143,7 +131,7 @@ export default function DashboardPage() {
             {displayName ? `, ${displayName}` : user?.email ? `, ${user.email.split("@")[0]}` : ""}
           </h2>
           <p className="max-w-2xl text-[15px] leading-7 text-[#7b6d5f]">
-            Track article status, recent edits, and the remaining admin work from one place.
+            Track article status and the psychologist count from one place.
           </p>
         </div>
       </section>
@@ -156,7 +144,8 @@ export default function DashboardPage() {
                 Finish your account setup
               </strong>
               <p className="text-sm leading-6 text-[#7b6d5f]">
-                Please set a new password in <span className="font-medium text-[#2f2a24]">Admin management</span> before regular use.
+                Please set a new password in{" "}
+                <span className="font-medium text-[#2f2a24]">Admin management</span> before regular use.
               </p>
             </div>
             <Link
@@ -231,20 +220,14 @@ export default function DashboardPage() {
           </div>
         </article>
 
-        <article className="rounded-[24px] border border-[#e3d4c6] bg-[rgba(255,253,249,0.88)] p-5 shadow-[0_14px_36px_rgba(65,43,27,0.06)]">
-          <div className="mb-4 flex items-start justify-between gap-4">
-            <div>
-              <div className="text-xs font-medium tracking-[0.18em] text-[#7b6d5f] uppercase">
-                Recent updates
-              </div>
-              <h3 className="mt-1 text-2xl font-semibold tracking-tight text-[#2f2a24]">Latest articles</h3>
+        <article className="grid gap-4 rounded-[24px] border border-[#e3d4c6] bg-[rgba(255,253,249,0.88)] p-5 shadow-[0_14px_36px_rgba(65,43,27,0.06)]">
+          <div>
+            <div className="text-xs font-medium tracking-[0.18em] text-[#7b6d5f] uppercase">
+              Recent updates
             </div>
-            <Link
-              to="/blog"
-              className="inline-flex h-10 items-center justify-center rounded-full border border-[#e3d4c6] bg-white px-4 text-sm font-medium text-[#7b6d5f] transition-colors hover:bg-[#f7efe6] hover:text-[#2f2a24]"
-            >
-              View all
-            </Link>
+            <h3 className="mt-1 text-2xl font-semibold tracking-tight text-[#2f2a24]">
+              Latest articles
+            </h3>
           </div>
 
           <div className="grid gap-3">
@@ -258,7 +241,7 @@ export default function DashboardPage() {
                 </p>
               </div>
             ) : (
-              recentPosts.slice(0, 4).map((post) => (
+              recentPosts.slice(0, 3).map((post) => (
                 <div
                   key={post.id}
                   className="flex items-start justify-between gap-4 rounded-2xl border border-[#e3d4c6] bg-white/80 p-4"
@@ -278,48 +261,6 @@ export default function DashboardPage() {
                 </div>
               ))
             )}
-          </div>
-        </article>
-
-        <article className="rounded-[24px] border border-[#e3d4c6] bg-[rgba(255,253,249,0.88)] p-5 shadow-[0_14px_36px_rgba(65,43,27,0.06)]">
-          <div>
-            <div className="text-xs font-medium tracking-[0.18em] text-[#7b6d5f] uppercase">
-              Workflow
-            </div>
-            <h3 className="mt-1 text-2xl font-semibold tracking-tight text-[#2f2a24]">Current scope</h3>
-          </div>
-
-          <ol className="mt-4 grid gap-3 pl-5 text-[#2f2a24]">
-            <li>Article management is live and connected to Supabase.</li>
-            <li>Public blog now reads directly from published rows.</li>
-            <li>Psychologist management is the next module to build.</li>
-            <li>Production deployment still needs final env verification.</li>
-          </ol>
-        </article>
-
-        <article className="rounded-[24px] border border-[#e3d4c6] bg-[linear-gradient(180deg,rgba(255,253,249,0.96),rgba(241,228,216,0.92))] p-5 shadow-[0_14px_36px_rgba(65,43,27,0.06)]">
-          <div className="text-xs font-medium tracking-[0.18em] text-[#7b6d5f] uppercase">
-            Ready next
-          </div>
-          <h3 className="mt-1 text-2xl font-semibold tracking-tight text-[#2f2a24]">
-            Continue with the unfinished card
-          </h3>
-          <p className="mt-2 text-sm leading-6 text-[#7b6d5f]">
-            The fastest next step is the psychologist module, then production deploy verification.
-          </p>
-          <div className="mt-4 flex flex-wrap gap-3">
-            <Link
-              to="/psychologists"
-              className="inline-flex h-10 items-center justify-center rounded-full bg-[#6f4f40] px-4 text-sm font-medium text-white transition-colors hover:bg-[#5d4337]"
-            >
-              Open psychologists
-            </Link>
-            <Link
-              to="/blog"
-              className="inline-flex h-10 items-center justify-center rounded-full border border-[#e3d4c6] bg-white px-4 text-sm font-medium text-[#7b6d5f] transition-colors hover:bg-[#f7efe6] hover:text-[#2f2a24]"
-            >
-              Open articles
-            </Link>
           </div>
         </article>
       </section>

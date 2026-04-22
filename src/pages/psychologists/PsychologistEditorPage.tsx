@@ -667,13 +667,6 @@ export default function PsychologistEditorPage() {
                         <option value="inactive">Inactive</option>
                       </select>
                     </label>
-
-                    <div className="grid gap-1 text-sm text-[#7b6d5f]">
-                      <span>Show order</span>
-                      <div className="flex h-11 items-center rounded-2xl border border-[#e3d4c6] bg-white px-4 text-sm text-[#7b6d5f]">
-                        Managed from the list page
-                      </div>
-                    </div>
                   </div>
                 </div>
 
