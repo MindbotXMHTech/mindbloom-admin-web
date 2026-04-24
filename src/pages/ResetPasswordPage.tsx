@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { Session } from "@supabase/supabase-js";
-import { supabase } from "../lib/supabase";
+import { supabase, supabaseAnonKey, supabaseUrl } from "../lib/supabase";
 import { LoadingScreen } from "../components/ui/loading";
 
 export default function ResetPasswordPage() {
@@ -36,6 +36,22 @@ export default function ResetPasswordPage() {
     };
   }, []);
 
+  const completePasswordSetup = async () => {
+    if (!supabaseUrl || !supabaseAnonKey || !session?.access_token) {
+      return;
+    }
+
+    await fetch(`${supabaseUrl}/functions/v1/admin-actions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: supabaseAnonKey,
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ action: "complete_setup" }),
+    });
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
@@ -66,6 +82,12 @@ export default function ResetPasswordPage() {
       setError(updateError.message);
       setSaving(false);
       return;
+    }
+
+    try {
+      await completePasswordSetup();
+    } catch {
+      // Keep the password reset successful even if the reminder flag fails to clear.
     }
 
     await supabase.auth.signOut();
