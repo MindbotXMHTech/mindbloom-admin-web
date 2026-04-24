@@ -20,6 +20,27 @@ import { LoadingBlock } from "../../components/ui/loading";
 
 const PLACEHOLDER_PHOTO =
   "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 1000'><rect width='800' height='1000' rx='48' fill='%23F6F1EA'/><circle cx='400' cy='330' r='120' fill='%23D8C7B8'/><path d='M220 860c42-122 130-182 180-182s138 60 180 182' fill='%23D8C7B8'/><path d='M320 320c0 44 36 80 80 80s80-36 80-80-36-80-80-80-80 36-80 80z' fill='%23F1E4D8'/></svg>";
+const CONTENT_IMAGE_BUCKET = "content-images";
+
+function getStorageObjectPath(url: string) {
+  if (!url.trim()) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(url);
+    const marker = `/storage/v1/object/public/${CONTENT_IMAGE_BUCKET}/`;
+    const markerIndex = parsed.pathname.indexOf(marker);
+
+    if (markerIndex === -1) {
+      return null;
+    }
+
+    return decodeURIComponent(parsed.pathname.slice(markerIndex + marker.length));
+  } catch {
+    return null;
+  }
+}
 
 export default function PsychologistEditorPage() {
   const navigate = useNavigate();
@@ -258,6 +279,44 @@ export default function PsychologistEditorPage() {
     setSaving(true);
     setError("");
     setNotice("");
+
+    const storageObjectPaths = new Set<string>();
+    const photoPath = getStorageObjectPath(deleteTarget.photo_url);
+
+    if (photoPath) {
+      storageObjectPaths.add(photoPath);
+    }
+
+    const { data: folderItems, error: listError } = await supabase.storage
+      .from(CONTENT_IMAGE_BUCKET)
+      .list("psychologists", {
+        limit: 100,
+        sortBy: { column: "name", order: "asc" },
+      });
+
+    if (listError) {
+      setError(listError.message);
+      setSaving(false);
+      return;
+    }
+
+    folderItems?.forEach((item) => {
+      if (item.name?.startsWith(`${deleteTarget.slug}-`)) {
+        storageObjectPaths.add(`psychologists/${item.name}`);
+      }
+    });
+
+    if (storageObjectPaths.size > 0) {
+      const { error: storageError } = await supabase.storage
+        .from(CONTENT_IMAGE_BUCKET)
+        .remove([...storageObjectPaths]);
+
+      if (storageError) {
+        setError(storageError.message);
+        setSaving(false);
+        return;
+      }
+    }
 
     const { error: deleteError } = await supabase
       .from("psychologists")

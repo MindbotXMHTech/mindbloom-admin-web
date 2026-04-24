@@ -14,6 +14,28 @@ import {
 } from "./blogShared";
 import { LoadingBlock } from "../../components/ui/loading";
 
+const CONTENT_IMAGE_BUCKET = "content-images";
+
+function getStorageObjectPath(url: string) {
+  if (!url.trim()) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(url);
+    const marker = `/storage/v1/object/public/${CONTENT_IMAGE_BUCKET}/`;
+    const markerIndex = parsed.pathname.indexOf(marker);
+
+    if (markerIndex === -1) {
+      return null;
+    }
+
+    return decodeURIComponent(parsed.pathname.slice(markerIndex + marker.length));
+  } catch {
+    return null;
+  }
+}
+
 export default function BlogEditorPage() {
   const navigate = useNavigate();
   const { id } = useParams();
@@ -249,6 +271,44 @@ export default function BlogEditorPage() {
     setSaving(true);
     setError("");
     setSaveNotice(null);
+
+    const storageObjectPaths = new Set<string>();
+    const coverPath = getStorageObjectPath(deleteTarget.cover_image_url);
+
+    if (coverPath) {
+      storageObjectPaths.add(coverPath);
+    }
+
+    const { data: folderItems, error: listError } = await supabase.storage
+      .from(CONTENT_IMAGE_BUCKET)
+      .list("blog", {
+        limit: 100,
+        sortBy: { column: "name", order: "asc" },
+      });
+
+    if (listError) {
+      setSaveNotice({ type: "error", message: listError.message });
+      setSaving(false);
+      return;
+    }
+
+    folderItems?.forEach((item) => {
+      if (item.name?.startsWith(`${deleteTarget.slug}-`)) {
+        storageObjectPaths.add(`blog/${item.name}`);
+      }
+    });
+
+    if (storageObjectPaths.size > 0) {
+      const { error: storageError } = await supabase.storage
+        .from(CONTENT_IMAGE_BUCKET)
+        .remove([...storageObjectPaths]);
+
+      if (storageError) {
+        setSaveNotice({ type: "error", message: storageError.message });
+        setSaving(false);
+        return;
+      }
+    }
 
     const { error: deleteError } = await supabase
       .from("blog_posts")

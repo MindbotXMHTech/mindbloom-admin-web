@@ -32,6 +32,8 @@ type GalleryItem =
       label: string;
     };
 
+const ACTIVITY_STORAGE_BUCKET = "content-images";
+
 function createExistingGalleryItems(urls: string[]): GalleryItem[] {
   return urls.map((url, index) => ({
     id: `existing-${index}-${url}`,
@@ -39,6 +41,26 @@ function createExistingGalleryItems(urls: string[]): GalleryItem[] {
     url,
     label: url.split("/").pop() || `image-${index + 1}`,
   }));
+}
+
+function getStorageObjectPath(url: string) {
+  if (!url.trim()) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(url);
+    const marker = `/storage/v1/object/public/${ACTIVITY_STORAGE_BUCKET}/`;
+    const markerIndex = parsed.pathname.indexOf(marker);
+
+    if (markerIndex === -1) {
+      return null;
+    }
+
+    return decodeURIComponent(parsed.pathname.slice(markerIndex + marker.length));
+  } catch {
+    return null;
+  }
 }
 
 export default function ActivityEditorPage() {
@@ -367,6 +389,10 @@ export default function ActivityEditorPage() {
       form.status === "published"
         ? selectedActivity?.published_at ?? new Date().toISOString()
         : null;
+    const nextSortOrder =
+      activities.length === 0
+        ? 0
+        : Math.max(...activities.map((activity) => activity.sort_order)) + 1;
 
     const payload = {
       slug: form.slug.trim(),
@@ -382,7 +408,7 @@ export default function ActivityEditorPage() {
       event_date: form.event_date || null,
       status: form.status,
       published_at: publishedAt,
-      sort_order: Number(form.sort_order) || 0,
+      sort_order: form.id ? Number(form.sort_order) || 0 : nextSortOrder,
     };
 
     const mutation = form.id
@@ -435,6 +461,53 @@ export default function ActivityEditorPage() {
     setSaving(true);
     setError("");
     setSaveNotice(null);
+
+    const storageObjectPaths = new Set<string>();
+    const storageFolder = `activities/${deleteTarget.slug}`;
+    const coverPath = getStorageObjectPath(deleteTarget.cover_image_url);
+
+    if (coverPath) {
+      storageObjectPaths.add(coverPath);
+    }
+
+    deleteTarget.gallery_image_urls.forEach((url) => {
+      const objectPath = getStorageObjectPath(url);
+
+      if (objectPath) {
+        storageObjectPaths.add(objectPath);
+      }
+    });
+
+    const { data: folderItems, error: listError } = await supabase.storage
+      .from(ACTIVITY_STORAGE_BUCKET)
+      .list(storageFolder, {
+        limit: 100,
+        sortBy: { column: "name", order: "asc" },
+      });
+
+    if (listError) {
+      setSaveNotice({ type: "error", message: listError.message });
+      setSaving(false);
+      return;
+    }
+
+    folderItems?.forEach((item) => {
+      if (item.name) {
+        storageObjectPaths.add(`${storageFolder}/${item.name}`);
+      }
+    });
+
+    if (storageObjectPaths.size > 0) {
+      const { error: storageError } = await supabase.storage
+        .from(ACTIVITY_STORAGE_BUCKET)
+        .remove([...storageObjectPaths]);
+
+      if (storageError) {
+        setSaveNotice({ type: "error", message: storageError.message });
+        setSaving(false);
+        return;
+      }
+    }
 
     const { error: deleteError } = await supabase
       .from("activities")
