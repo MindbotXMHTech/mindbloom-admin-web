@@ -20,6 +20,7 @@ Deno.serve(async (req) => {
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const adminAppUrl = Deno.env.get("ADMIN_APP_URL") ?? "https://admin.mindbloom-wellness.com";
+    const inviteRedirectTo = new URL("/", adminAppUrl).toString();
 
     if (!supabaseUrl || !anonKey || !serviceRoleKey) {
       return Response.json(
@@ -72,7 +73,7 @@ Deno.serve(async (req) => {
       const { data: inviteData, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(
         email,
         {
-          redirectTo: `${adminAppUrl.replace(/\/+$/, "")}/reset-password`,
+          redirectTo: inviteRedirectTo,
           data: displayName ? { display_name: displayName } : undefined,
         },
       );

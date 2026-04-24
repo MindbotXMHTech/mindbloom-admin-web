@@ -242,7 +242,7 @@ export default function AdminManagementPage() {
       setInviteName("");
       setInviteRole("admin");
       await loadAdmins();
-      setNotice("Invite sent to the new admin.");
+      setNotice("Invite sent. The new admin can open the email and finish setup from the overview.");
     } catch (invokeError) {
       setError(invokeError instanceof Error ? invokeError.message : "Invite failed.");
     } finally {
@@ -480,7 +480,8 @@ export default function AdminManagementPage() {
               {busy ? "Inviting..." : "Invite new admin"}
             </button>
             <p className="text-sm leading-6 text-[#7b6d5f]">
-              The invited admin will receive a setup email.
+              The invited admin will receive an email link, land on the overview page, and see
+              the password setup reminder.
             </p>
           </form>
         </article>
