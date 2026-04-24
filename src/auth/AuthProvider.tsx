@@ -26,64 +26,73 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [accessError, setAccessError] = useState("");
 
-  const syncSession = async (nextSession: Session | null) => {
-    setLoading(true);
-    setAccessError("");
-    setSession(nextSession);
-
-    if (!nextSession) {
-      setIsAdmin(false);
-      setLoading(false);
-      return;
-    }
-
-    const { data, error } = await supabase
-      .from("admin_users")
-      .select("role,is_active,email")
-      .eq("user_id", nextSession.user.id)
-      .maybeSingle();
-
-    if (error) {
-      setIsAdmin(false);
-      setSession(null);
-      setAccessError(error.message);
-      setLoading(false);
-      return;
-    }
-
-    if (!data) {
-      setIsAdmin(false);
-      setSession(null);
-      setAccessError("You do not have admin access.");
-      setLoading(false);
-      return;
-    }
-
-    if (!data.is_active) {
-      setIsAdmin(false);
-      setSession(null);
-      setAccessError("Your admin access has been disabled.");
-      setLoading(false);
-      return;
-    }
-
-    setIsAdmin(true);
-    setLoading(false);
-  };
-
   useEffect(() => {
     let isMounted = true;
 
-    supabase.auth.getSession().then(({ data }) => {
+    const syncSession = async (
+      nextSession: Session | null,
+      options: { showLoading?: boolean } = {},
+    ) => {
       if (!isMounted) return;
-      syncSession(data.session);
+
+      if (options.showLoading) {
+        setLoading(true);
+      }
+
+      setAccessError("");
+      setSession(nextSession);
+
+      if (!nextSession) {
+        setIsAdmin(false);
+        setLoading(false);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("admin_users")
+        .select("role,is_active,email")
+        .eq("user_id", nextSession.user.id)
+        .maybeSingle();
+
+      if (!isMounted) return;
+
+      if (error) {
+        setIsAdmin(false);
+        setSession(null);
+        setAccessError(error.message);
+        setLoading(false);
+        return;
+      }
+
+      if (!data) {
+        setIsAdmin(false);
+        setSession(null);
+        setAccessError("You do not have admin access.");
+        setLoading(false);
+        return;
+      }
+
+      if (!data.is_active) {
+        setIsAdmin(false);
+        setSession(null);
+        setAccessError("Your admin access has been disabled.");
+        setLoading(false);
+        return;
+      }
+
+      setIsAdmin(true);
+      setLoading(false);
+    };
+
+    supabase.auth.getSession().then(({ data }) => {
+      void syncSession(data.session, { showLoading: true });
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(
       (_event, nextSession) => {
-        syncSession(nextSession);
+        void syncSession(nextSession);
       },
     );
 

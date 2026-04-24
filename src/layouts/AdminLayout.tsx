@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
-import { BookText, LayoutDashboard, LogOut, Settings2, UsersRound } from "lucide-react";
+import {
+  BookText,
+  CalendarRange,
+  LayoutDashboard,
+  LogOut,
+  Settings2,
+  UsersRound,
+} from "lucide-react";
 import { useAuth } from "../auth/AuthProvider";
 import logoMindbloom from "../assets/svgs/logo-mindbloom.svg";
 
@@ -10,6 +17,7 @@ const PASSWORD_FLASH_EVENT = "mindbloom-admin-flash";
 const navItems = [
   { to: "/", label: "Overview", icon: LayoutDashboard },
   { to: "/blog", label: "บทความ", icon: BookText },
+  { to: "/activities", label: "กิจกรรม", icon: CalendarRange },
   { to: "/psychologists", label: "นักจิตวิทยา", icon: UsersRound },
   { to: "/admins", label: "Admin", icon: Settings2 },
 ] as const;
@@ -111,7 +119,7 @@ export default function AdminLayout() {
           className="grid w-full flex-1 place-items-center max-md:my-0 max-md:max-w-none max-md:px-0 max-md:py-0"
           aria-label="Admin sections"
         >
-          <div className="grid gap-2 rounded-[28px] bg-[rgba(255,255,255,0.48)] px-2 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] max-md:w-full max-md:grid-cols-4 max-md:place-items-stretch max-md:rounded-[22px]">
+          <div className="grid gap-2 rounded-[28px] bg-[rgba(255,255,255,0.48)] px-2 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] max-md:w-full max-md:grid-cols-5 max-md:place-items-stretch max-md:rounded-[22px]">
             {navItems.map((item) => (
               <NavLink
                 key={item.to}

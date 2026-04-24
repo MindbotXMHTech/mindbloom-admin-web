@@ -552,31 +552,22 @@ export default function PsychologistEditorPage() {
                       <p className="mt-1 text-sm text-[#7b6d5f]">{previewNickname}</p>
                     </div>
                     <div className="flex flex-col items-end gap-2">
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          className={[
-                            "border-b-2 px-1 pb-1 text-sm font-medium transition-colors",
-                            previewLanguage === "th"
-                              ? "border-[#6f4f40] text-[#2f2a24]"
-                              : "border-transparent text-[#7b6d5f] hover:text-[#2f2a24]",
-                          ].join(" ")}
-                          onClick={() => setPreviewLanguage("th")}
-                        >
-                          Thai
-                        </button>
-                        <button
-                          type="button"
-                          className={[
-                            "border-b-2 px-1 pb-1 text-sm font-medium transition-colors",
-                            previewLanguage === "en"
-                              ? "border-[#6f4f40] text-[#2f2a24]"
-                              : "border-transparent text-[#7b6d5f] hover:text-[#2f2a24]",
-                          ].join(" ")}
-                          onClick={() => setPreviewLanguage("en")}
-                        >
-                          English
-                        </button>
+                      <div className="flex rounded-full border border-[#e3d4c6] bg-white p-1 text-sm">
+                        {(["th", "en"] as const).map((language) => (
+                          <button
+                            key={language}
+                            type="button"
+                            onClick={() => setPreviewLanguage(language)}
+                            className={[
+                              "rounded-full px-3 py-1.5 transition-colors",
+                              previewLanguage === language
+                                ? "bg-[#6f4f40] text-white"
+                                : "text-[#7b6d5f] hover:bg-[#f7efe6]",
+                            ].join(" ")}
+                          >
+                            {language.toUpperCase()}
+                          </button>
+                        ))}
                       </div>
                       <span
                         className={[

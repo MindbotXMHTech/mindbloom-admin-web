@@ -9,6 +9,8 @@ import PsychologistPage from "./pages/PsychologistPage";
 import PsychologistEditorPage from "./pages/psychologists/PsychologistEditorPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import { RequireAuth } from "./auth/RequireAuth";
+import ActivityListPage from "./pages/activities/ActivityListPage";
+import ActivityEditorPage from "./pages/activities/ActivityEditorPage";
 
 export default function App() {
   return (
@@ -34,6 +36,11 @@ export default function App() {
         <Route path="psychologists/edit/:id" element={<PsychologistEditorPage />} />
         <Route path="psychologists/new" element={<Navigate to="/psychologists/create" replace />} />
         <Route path="psychologists/:id" element={<PsychologistLegacyRedirect />} />
+        <Route path="activities" element={<ActivityListPage />} />
+        <Route path="activities/create" element={<ActivityEditorPage />} />
+        <Route path="activities/edit/:id" element={<ActivityEditorPage />} />
+        <Route path="activities/new" element={<Navigate to="/activities/create" replace />} />
+        <Route path="activities/:id" element={<ActivityLegacyRedirect />} />
         <Route path="admins" element={<AdminManagementPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
@@ -59,4 +66,14 @@ function PsychologistLegacyRedirect() {
   }
 
   return <Navigate to={`/psychologists/edit/${id}`} replace />;
+}
+
+function ActivityLegacyRedirect() {
+  const { id } = useParams();
+
+  if (!id) {
+    return <Navigate to="/activities" replace />;
+  }
+
+  return <Navigate to={`/activities/edit/${id}`} replace />;
 }
