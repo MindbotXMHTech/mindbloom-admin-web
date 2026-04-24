@@ -1,6 +1,7 @@
 import { Navigate, useLocation } from "react-router-dom";
 import type { ReactNode } from "react";
 import { useAuth } from "./AuthProvider";
+import { LoadingScreen } from "../components/ui/loading";
 
 export function RequireAuth({ children }: { children: ReactNode }) {
   const { loading, session, isAdmin } = useAuth();
@@ -8,12 +9,11 @@ export function RequireAuth({ children }: { children: ReactNode }) {
 
   if (loading) {
     return (
-      <main className="content">
-        <section className="panel hero page">
-          <div className="meta">Loading</div>
-          <h1>Checking access</h1>
-        </section>
-      </main>
+      <LoadingScreen
+        eyebrow="Loading"
+        title="Checking access"
+        description="Preparing your admin session and access rules."
+      />
     );
   }
 

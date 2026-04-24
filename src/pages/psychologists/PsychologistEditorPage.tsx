@@ -16,6 +16,7 @@ import {
   type PsychologistTopicKey,
 } from "./psychologistShared";
 import { formatDate } from "../blog/blogShared";
+import { LoadingBlock } from "../../components/ui/loading";
 
 const PLACEHOLDER_PHOTO =
   "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 1000'><rect width='800' height='1000' rx='48' fill='%23F6F1EA'/><circle cx='400' cy='330' r='120' fill='%23D8C7B8'/><path d='M220 860c42-122 130-182 180-182s138 60 180 182' fill='%23D8C7B8'/><path d='M320 320c0 44 36 80 80 80s80-36 80-80-36-80-80-80-80 36-80 80z' fill='%23F1E4D8'/></svg>";
@@ -276,7 +277,37 @@ export default function PsychologistEditorPage() {
   };
 
   if (!isNew && loading) {
-    return <p className="text-sm text-[#7b6d5f]">Loading psychologist...</p>;
+    return (
+      <section className="grid gap-4">
+        <section className="grid gap-3 rounded-[28px] border border-[#e3d4c6] bg-[rgba(255,253,249,0.9)] px-6 py-6 shadow-[0_14px_36px_rgba(65,43,27,0.06)]">
+          <LoadingBlock className="h-4 w-40 rounded-full" />
+          <LoadingBlock className="h-10 w-64 rounded-full" />
+          <LoadingBlock className="h-4 w-full max-w-2xl rounded-full" />
+        </section>
+        <section className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
+          <article className="grid gap-4 rounded-[24px] border border-[#e3d4c6] bg-[rgba(255,253,249,0.88)] p-5 shadow-[0_14px_36px_rgba(65,43,27,0.06)]">
+            <div className="grid gap-4 md:grid-cols-2">
+              {Array.from({ length: 6 }, (_, index) => (
+                <LoadingBlock key={`psychologist-editor-field-${index}`} className="h-11 rounded-2xl" />
+              ))}
+            </div>
+            <LoadingBlock className="h-28 rounded-[22px]" />
+            <LoadingBlock className="h-28 rounded-[22px]" />
+            <div className="flex flex-wrap gap-2">
+              {Array.from({ length: 5 }, (_, index) => (
+                <LoadingBlock key={`psychologist-editor-chip-${index}`} className="h-8 w-24 rounded-full" />
+              ))}
+            </div>
+          </article>
+          <article className="grid gap-4 rounded-[24px] border border-[#e3d4c6] bg-[rgba(255,253,249,0.88)] p-5 shadow-[0_14px_36px_rgba(65,43,27,0.06)]">
+            <LoadingBlock className="h-72 rounded-[24px]" />
+            <LoadingBlock className="h-4 w-1/2 rounded-full" />
+            <LoadingBlock className="h-4 w-full rounded-full" />
+            <LoadingBlock className="h-4 w-4/5 rounded-full" />
+          </article>
+        </section>
+      </section>
+    );
   }
 
   const title = isNew ? "Create psychologist" : "Edit psychologist";

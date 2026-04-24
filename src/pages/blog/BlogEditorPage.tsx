@@ -12,6 +12,7 @@ import {
   type BlogFormState,
   type BlogPost,
 } from "./blogShared";
+import { LoadingBlock } from "../../components/ui/loading";
 
 export default function BlogEditorPage() {
   const navigate = useNavigate();
@@ -267,7 +268,31 @@ export default function BlogEditorPage() {
   };
 
   if (!isNew && loading) {
-    return <p className="text-sm text-[#7b6d5f]">Loading article...</p>;
+    return (
+      <section className="grid gap-4">
+        <section className="grid gap-3 rounded-[28px] border border-[#e3d4c6] bg-[rgba(255,253,249,0.9)] px-6 py-6 shadow-[0_14px_36px_rgba(65,43,27,0.06)]">
+          <LoadingBlock className="h-4 w-32 rounded-full" />
+          <LoadingBlock className="h-10 w-52 rounded-full" />
+          <LoadingBlock className="h-4 w-full max-w-2xl rounded-full" />
+        </section>
+        <section className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+          <article className="grid gap-4 rounded-[24px] border border-[#e3d4c6] bg-[rgba(255,253,249,0.88)] p-5 shadow-[0_14px_36px_rgba(65,43,27,0.06)]">
+            {Array.from({ length: 7 }, (_, index) => (
+              <LoadingBlock
+                key={`blog-editor-field-${index}`}
+                className={index === 4 ? "h-36 rounded-[22px]" : "h-11 rounded-2xl"}
+              />
+            ))}
+          </article>
+          <article className="grid gap-4 rounded-[24px] border border-[#e3d4c6] bg-[rgba(255,253,249,0.88)] p-5 shadow-[0_14px_36px_rgba(65,43,27,0.06)]">
+            <LoadingBlock className="h-56 rounded-[22px]" />
+            <LoadingBlock className="h-4 w-2/3 rounded-full" />
+            <LoadingBlock className="h-4 w-full rounded-full" />
+            <LoadingBlock className="h-4 w-5/6 rounded-full" />
+          </article>
+        </section>
+      </section>
+    );
   }
 
   const title = isNew ? "Create article" : "Edit article";

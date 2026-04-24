@@ -14,6 +14,7 @@ import {
   psychologistTopicOptions,
   type PsychologistRecord,
 } from "./psychologists/psychologistShared";
+import { LoadingBlock } from "../components/ui/loading";
 
 export default function PsychologistPage() {
   const navigate = useNavigate();
@@ -230,7 +231,29 @@ export default function PsychologistPage() {
         </div>
 
         {loading ? (
-          <p className="mt-4 text-sm text-[#7b6d5f]">Loading psychologists...</p>
+          <div className="mt-4 grid gap-3">
+            {Array.from({ length: 4 }, (_, index) => (
+              <article
+                key={`psychologist-loading-row-${index}`}
+                className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-[#e3d4c6] bg-white/80 p-4"
+              >
+                <div className="flex min-w-0 flex-1 items-center gap-4">
+                  <LoadingBlock className="h-10 w-10 rounded-full" />
+                  <LoadingBlock className="h-16 w-16 rounded-2xl" />
+                  <div className="min-w-0 flex-1 grid gap-2">
+                    <LoadingBlock className="h-5 w-40 rounded-full" />
+                    <LoadingBlock className="h-4 w-56 max-w-full rounded-full" />
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <LoadingBlock className="h-7 w-20 rounded-full" />
+                      <LoadingBlock className="h-7 w-20 rounded-full" />
+                      <LoadingBlock className="h-7 w-14 rounded-full" />
+                    </div>
+                  </div>
+                </div>
+                <LoadingBlock className="h-10 w-10 rounded-2xl" />
+              </article>
+            ))}
+          </div>
         ) : filtered.length === 0 ? (
           <div className="mt-4 rounded-2xl border border-dashed border-[#e3d4c6] bg-white/70 p-5">
             <p className="text-sm leading-6 text-[#7b6d5f]">No psychologist profiles found.</p>

@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabase";
+import { LoadingScreen } from "../components/ui/loading";
 
 export default function ResetPasswordPage() {
   const navigate = useNavigate();
@@ -77,16 +78,11 @@ export default function ResetPasswordPage() {
 
   if (loading) {
     return (
-      <main className="grid min-h-screen place-items-center p-4">
-        <section className="w-full max-w-[560px] rounded-[28px] border border-[#e3d4c6] bg-[rgba(255,253,249,0.9)] px-6 py-6 shadow-[0_14px_36px_rgba(65,43,27,0.06)]">
-          <div className="text-xs font-medium tracking-[0.18em] text-[#7b6d5f] uppercase">
-            Loading
-          </div>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[#2f2a24]">
-            Checking reset link
-          </h1>
-        </section>
-      </main>
+      <LoadingScreen
+        eyebrow="Loading"
+        title="Checking reset link"
+        description="Confirming that your reset session is ready before you set a new password."
+      />
     );
   }
 

@@ -15,6 +15,7 @@ import {
   type BlogPost,
   type BlogStatus,
 } from "./blogShared";
+import { LoadingBlock } from "../../components/ui/loading";
 
 export default function BlogListPage() {
   const navigate = useNavigate();
@@ -179,7 +180,31 @@ export default function BlogListPage() {
         </div>
 
         {loading ? (
-          <p className="text-sm text-[#7b6d5f]">Loading articles...</p>
+          <div className="grid gap-3">
+            {Array.from({ length: 4 }, (_, index) => (
+              <article
+                key={`blog-loading-row-${index}`}
+                className="grid gap-3 rounded-[20px] border border-[#e3d4c6] bg-white/80 p-4 shadow-[0_10px_24px_rgba(65,43,27,0.04)]"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1 grid gap-2">
+                    <LoadingBlock className="h-5 w-2/3 rounded-full" />
+                    <LoadingBlock className="h-4 w-1/4 rounded-full" />
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <LoadingBlock className="h-4 w-24 rounded-full" />
+                      <LoadingBlock className="h-4 w-16 rounded-full" />
+                    </div>
+                    <LoadingBlock className="h-4 w-full rounded-full" />
+                    <LoadingBlock className="h-4 w-5/6 rounded-full" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <LoadingBlock className="h-7 w-20 rounded-full" />
+                    <LoadingBlock className="h-10 w-10 rounded-2xl" />
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
         ) : visiblePosts.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-[#e3d4c6] bg-white/70 p-5">
             <h3 className="text-lg font-semibold text-[#2f2a24]">No articles yet</h3>

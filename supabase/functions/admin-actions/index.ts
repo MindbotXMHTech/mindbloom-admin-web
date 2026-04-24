@@ -20,7 +20,7 @@ Deno.serve(async (req) => {
     const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
     const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const adminAppUrl = Deno.env.get("ADMIN_APP_URL") ?? "https://admin.mindbloom-wellness.com";
-    const inviteRedirectTo = new URL("/", adminAppUrl).toString();
+    const inviteRedirectTo = new URL("/reset-password", adminAppUrl).toString();
 
     if (!supabaseUrl || !anonKey || !serviceRoleKey) {
       return Response.json(

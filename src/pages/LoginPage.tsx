@@ -3,6 +3,7 @@ import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../auth/AuthProvider";
 import logoMindbloom from "../assets/svgs/logo-mindbloom.svg";
+import { LoadingScreen } from "../components/ui/loading";
 
 export default function LoginPage() {
   const { session, loading, user, isAdmin, accessError } = useAuth();
@@ -24,16 +25,11 @@ export default function LoginPage() {
 
   if (loading) {
     return (
-      <main className="grid min-h-screen place-items-center p-4">
-        <section className="w-full max-w-[560px] rounded-[28px] border border-[#e3d4c6] bg-[rgba(255,253,249,0.9)] px-6 py-6 shadow-[0_14px_36px_rgba(65,43,27,0.06)]">
-          <div className="text-xs font-medium tracking-[0.18em] text-[#7b6d5f] uppercase">
-            Loading
-          </div>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[#2f2a24]">
-            Checking session
-          </h1>
-        </section>
-      </main>
+      <LoadingScreen
+        eyebrow="Loading"
+        title="Checking session"
+        description="Verifying whether an admin session is already active."
+      />
     );
   }
 

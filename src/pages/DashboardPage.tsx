@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { formatDate, statusClass, statusLabel, type BlogPost } from "./blog/blogShared";
 import { useAuth } from "../auth/AuthProvider";
+import { LoadingBlock } from "../components/ui/loading";
 
 type OverviewCounts = {
   totalArticles: number;
@@ -165,34 +166,51 @@ export default function DashboardPage() {
       ) : null}
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <article className="grid gap-2 rounded-2xl border border-[#e3d4c6] bg-[rgba(255,253,249,0.88)] p-4 shadow-[0_14px_36px_rgba(65,43,27,0.06)]">
-          <span className="text-sm text-[#7b6d5f]">Total articles</span>
-          <strong className="text-[28px] font-semibold tracking-tight text-[#2f2a24]">
-            {counts.totalArticles}
-          </strong>
-          <p className="text-sm leading-6 text-[#7b6d5f]">All blog posts currently in the system.</p>
-        </article>
-        <article className="grid gap-2 rounded-2xl border border-[#e3d4c6] bg-[rgba(255,253,249,0.88)] p-4 shadow-[0_14px_36px_rgba(65,43,27,0.06)]">
-          <span className="text-sm text-[#7b6d5f]">Published</span>
-          <strong className="text-[28px] font-semibold tracking-tight text-[#2f2a24]">
-            {counts.publishedArticles}
-          </strong>
-          <p className="text-sm leading-6 text-[#7b6d5f]">Visible on the public website right now.</p>
-        </article>
-        <article className="grid gap-2 rounded-2xl border border-[#e3d4c6] bg-[rgba(255,253,249,0.88)] p-4 shadow-[0_14px_36px_rgba(65,43,27,0.06)]">
-          <span className="text-sm text-[#7b6d5f]">Drafts</span>
-          <strong className="text-[28px] font-semibold tracking-tight text-[#2f2a24]">
-            {counts.draftArticles}
-          </strong>
-          <p className="text-sm leading-6 text-[#7b6d5f]">Saved but hidden from visitors.</p>
-        </article>
-        <article className="grid gap-2 rounded-2xl border border-[#e3d4c6] bg-[rgba(255,253,249,0.88)] p-4 shadow-[0_14px_36px_rgba(65,43,27,0.06)]">
-          <span className="text-sm text-[#7b6d5f]">Psychologists</span>
-          <strong className="text-[28px] font-semibold tracking-tight text-[#2f2a24]">
-            {counts.psychologistProfiles}
-          </strong>
-          <p className="text-sm leading-6 text-[#7b6d5f]">Profiles ready for the therapist section.</p>
-        </article>
+        {loading
+          ? Array.from({ length: 4 }, (_, index) => (
+              <article
+                key={`overview-loading-card-${index}`}
+                className="grid gap-3 rounded-2xl border border-[#e3d4c6] bg-[rgba(255,253,249,0.88)] p-4 shadow-[0_14px_36px_rgba(65,43,27,0.06)]"
+              >
+                <LoadingBlock className="h-4 w-24 rounded-full" />
+                <LoadingBlock className="h-8 w-16 rounded-2xl" />
+                <LoadingBlock className="h-4 w-full rounded-full" />
+                <LoadingBlock className="h-4 w-4/5 rounded-full" />
+              </article>
+            ))
+          : [
+              {
+                label: "Total articles",
+                value: counts.totalArticles,
+                description: "All blog posts currently in the system.",
+              },
+              {
+                label: "Published",
+                value: counts.publishedArticles,
+                description: "Visible on the public website right now.",
+              },
+              {
+                label: "Drafts",
+                value: counts.draftArticles,
+                description: "Saved but hidden from visitors.",
+              },
+              {
+                label: "Psychologists",
+                value: counts.psychologistProfiles,
+                description: "Profiles ready for the therapist section.",
+              },
+            ].map((item) => (
+              <article
+                key={item.label}
+                className="grid gap-2 rounded-2xl border border-[#e3d4c6] bg-[rgba(255,253,249,0.88)] p-4 shadow-[0_14px_36px_rgba(65,43,27,0.06)]"
+              >
+                <span className="text-sm text-[#7b6d5f]">{item.label}</span>
+                <strong className="text-[28px] font-semibold tracking-tight text-[#2f2a24]">
+                  {item.value}
+                </strong>
+                <p className="text-sm leading-6 text-[#7b6d5f]">{item.description}</p>
+              </article>
+            ))}
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
@@ -232,7 +250,23 @@ export default function DashboardPage() {
 
           <div className="grid gap-3">
             {loading ? (
-              <p className="text-sm text-[#7b6d5f]">Loading overview...</p>
+              Array.from({ length: 3 }, (_, index) => (
+                <div
+                  key={`overview-loading-post-${index}`}
+                  className="grid gap-3 rounded-2xl border border-[#e3d4c6] bg-white/80 p-4"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1 grid gap-2">
+                      <LoadingBlock className="h-5 w-2/3 rounded-full" />
+                      <LoadingBlock className="h-4 w-1/3 rounded-full" />
+                    </div>
+                    <div className="grid justify-items-end gap-2">
+                      <LoadingBlock className="h-6 w-20 rounded-full" />
+                      <LoadingBlock className="h-4 w-24 rounded-full" />
+                    </div>
+                  </div>
+                </div>
+              ))
             ) : recentPosts.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-[#e3d4c6] bg-white/70 p-5">
                 <h4 className="text-lg font-semibold text-[#2f2a24]">No articles yet</h4>

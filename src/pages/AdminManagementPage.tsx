@@ -3,6 +3,7 @@ import { Plus, RefreshCw, ShieldAlert, Trash2, UserRound } from "lucide-react";
 import { supabase, supabaseAnonKey, supabaseUrl } from "../lib/supabase";
 import { useAuth } from "../auth/AuthProvider";
 import { formatDate } from "./blog/blogShared";
+import { LoadingBlock } from "../components/ui/loading";
 
 type AdminUserRow = {
   user_id: string;
@@ -242,7 +243,7 @@ export default function AdminManagementPage() {
       setInviteName("");
       setInviteRole("admin");
       await loadAdmins();
-      setNotice("Invite sent. The new admin can open the email and finish setup from the overview.");
+      setNotice("Invite sent. The new admin can open the email and set a password right away.");
     } catch (invokeError) {
       setError(invokeError instanceof Error ? invokeError.message : "Invite failed.");
     } finally {
@@ -480,8 +481,7 @@ export default function AdminManagementPage() {
               {busy ? "Inviting..." : "Invite new admin"}
             </button>
             <p className="text-sm leading-6 text-[#7b6d5f]">
-              The invited admin will receive an email link, land on the overview page, and see
-              the password setup reminder.
+              The invited admin will receive a setup email that opens the password creation page.
             </p>
           </form>
         </article>
@@ -500,7 +500,23 @@ export default function AdminManagementPage() {
         </div>
 
         {loading ? (
-          <p className="mt-4 text-sm text-[#7b6d5f]">Loading admin list...</p>
+          <div className="mt-4 grid gap-3">
+            {Array.from({ length: 3 }, (_, index) => (
+              <article
+                key={`admin-loading-row-${index}`}
+                className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-[#e3d4c6] bg-white/80 p-4"
+              >
+                <div className="min-w-0 flex-1 grid gap-2">
+                  <LoadingBlock className="h-5 w-48 rounded-full" />
+                  <LoadingBlock className="h-4 w-64 max-w-full rounded-full" />
+                </div>
+                <div className="flex items-center gap-3">
+                  <LoadingBlock className="h-7 w-16 rounded-full" />
+                  <LoadingBlock className="h-10 w-10 rounded-full" />
+                </div>
+              </article>
+            ))}
+          </div>
         ) : (
           <div className="mt-4 grid gap-3">
             {admins.length === 0 ? (

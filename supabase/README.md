@@ -57,7 +57,7 @@ supabase functions deploy admin-actions --project-ref YOUR_PROJECT_REF
 
 If the admin page shows `Failed to send a request to the Edge Function`, the function is usually not deployed yet or the secrets are missing.
 
-The invite email should redirect to the admin app root so the new admin lands on the overview page and sees the password setup reminder. If you change the admin domain, update `ADMIN_APP_URL` and add the matching redirect URL in Supabase Auth settings.
+The invite email should redirect to the admin app's password reset page so the new admin can set a password immediately. If you change the admin domain, update `ADMIN_APP_URL` and add the matching redirect URL in Supabase Auth settings.
 
 ## Seed content
 
