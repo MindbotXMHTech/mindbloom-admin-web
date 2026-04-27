@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   LogOut,
   Settings2,
+  SquareStack,
   UsersRound,
 } from "lucide-react";
 import { useAuth } from "../auth/AuthProvider";
@@ -18,6 +19,7 @@ const navItems = [
   { to: "/", label: "Overview", icon: LayoutDashboard },
   { to: "/blog", label: "บทความ", icon: BookText },
   { to: "/activities", label: "กิจกรรม", icon: CalendarRange },
+  { to: "/services/cards", label: "บริการ", icon: SquareStack },
   { to: "/psychologists", label: "นักจิตวิทยา", icon: UsersRound },
   { to: "/admins", label: "Admin", icon: Settings2 },
 ] as const;

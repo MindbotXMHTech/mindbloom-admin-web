@@ -11,6 +11,7 @@ type OverviewCounts = {
   draftArticles: number;
   archivedArticles: number;
   activities: number;
+  services: number;
   psychologistProfiles: number;
 };
 
@@ -21,6 +22,11 @@ const quickActions = [
     title: "Manage activities",
     description: "Update the events and gallery content shown publicly.",
     to: "/activities",
+  },
+  {
+    title: "Manage services",
+    description: "Edit service cards and workshop content.",
+    to: "/services/cards",
   },
   {
     title: "Manage psychologists",
@@ -41,6 +47,7 @@ export default function DashboardPage() {
     draftArticles: 0,
     archivedArticles: 0,
     activities: 0,
+    services: 0,
     psychologistProfiles: 0,
   });
   const [recentPosts, setRecentPosts] = useState<BlogPost[]>([]);
@@ -55,6 +62,7 @@ export default function DashboardPage() {
       const [
         { data: postsData, error: postsError },
         { count: activityCount, error: activityError },
+        { count: serviceCount, error: serviceError },
         { count: psychologistCount, error: psychologistError },
         { data: adminData, error: adminError },
       ] = await Promise.all([
@@ -64,6 +72,7 @@ export default function DashboardPage() {
           .order("updated_at", { ascending: false })
           .order("sort_order", { ascending: true }),
         supabase.from("activities").select("id", { count: "exact", head: true }),
+        supabase.from("service_cards").select("id", { count: "exact", head: true }),
         supabase.from("psychologists").select("id", { count: "exact", head: true }),
         user?.id
           ? supabase
@@ -87,12 +96,17 @@ export default function DashboardPage() {
           draftArticles: posts.filter((post) => post.status === "draft").length,
           archivedArticles: posts.filter((post) => post.status === "archived").length,
           activities: activityCount ?? 0,
+          services: serviceCount ?? 0,
           psychologistProfiles: psychologistCount ?? 0,
         });
       }
 
       if (activityError) {
         setError((current) => current || activityError.message);
+      }
+
+      if (serviceError) {
+        setError((current) => current || serviceError.message);
       }
 
       if (psychologistError) {
@@ -179,9 +193,9 @@ export default function DashboardPage() {
         </p>
       ) : null}
 
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
         {loading
-          ? Array.from({ length: 5 }, (_, index) => (
+          ? Array.from({ length: 6 }, (_, index) => (
               <article
                 key={`overview-loading-card-${index}`}
                 className="grid gap-3 rounded-2xl border border-[#e3d4c6] bg-[rgba(255,253,249,0.88)] p-4 shadow-[0_14px_36px_rgba(65,43,27,0.06)]"
@@ -212,6 +226,11 @@ export default function DashboardPage() {
                 label: "Activities",
                 value: counts.activities,
                 description: "Event entries available for the public site.",
+              },
+              {
+                label: "Services",
+                value: counts.services,
+                description: "Service cards currently managed in the system.",
               },
               {
                 label: "Psychologists",
