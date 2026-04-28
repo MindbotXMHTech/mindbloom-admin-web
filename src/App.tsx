@@ -11,6 +11,12 @@ import ResetPasswordPage from "./pages/ResetPasswordPage";
 import { RequireAuth } from "./auth/RequireAuth";
 import ActivityListPage from "./pages/activities/ActivityListPage";
 import ActivityEditorPage from "./pages/activities/ActivityEditorPage";
+import ServiceCardListPage from "./pages/services/ServiceCardListPage";
+import ServiceCardEditorPage from "./pages/services/ServiceCardEditorPage";
+import WorkshopCategoryListPage from "./pages/services/WorkshopCategoryListPage";
+import WorkshopCategoryEditorPage from "./pages/services/WorkshopCategoryEditorPage";
+import WorkshopProgramListPage from "./pages/services/WorkshopProgramListPage";
+import WorkshopProgramEditorPage from "./pages/services/WorkshopProgramEditorPage";
 
 export default function App() {
   return (
@@ -41,6 +47,27 @@ export default function App() {
         <Route path="activities/edit/:id" element={<ActivityEditorPage />} />
         <Route path="activities/new" element={<Navigate to="/activities/create" replace />} />
         <Route path="activities/:id" element={<ActivityLegacyRedirect />} />
+        <Route path="services/cards" element={<ServiceCardListPage />} />
+        <Route path="services/cards/create" element={<ServiceCardEditorPage />} />
+        <Route path="services/cards/edit/:id" element={<ServiceCardEditorPage />} />
+        <Route path="services/workshop-categories" element={<WorkshopCategoryListPage />} />
+        <Route
+          path="services/workshop-categories/create"
+          element={<WorkshopCategoryEditorPage />}
+        />
+        <Route
+          path="services/workshop-categories/edit/:id"
+          element={<WorkshopCategoryEditorPage />}
+        />
+        <Route path="services/workshop-programs" element={<WorkshopProgramListPage />} />
+        <Route
+          path="services/workshop-programs/create"
+          element={<WorkshopProgramEditorPage />}
+        />
+        <Route
+          path="services/workshop-programs/edit/:id"
+          element={<WorkshopProgramEditorPage />}
+        />
         <Route path="admins" element={<AdminManagementPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
