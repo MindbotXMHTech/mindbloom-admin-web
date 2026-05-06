@@ -1,16 +1,21 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
-import { ArrowLeft, ImageUp, Save, Trash2 } from "lucide-react";
+import { ArrowLeft, ImageUp, PencilLine, Save, Trash2, X } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { resolvePsychologistPhotoUrl } from "../../assets/images/psychologists";
+import { adminIconButtonClass } from "../../components/ui/adminButtonStyles";
 import {
   emptyPsychologistForm,
+  createUniqueTopicSlug,
+  defaultPsychologistTopicOptions,
   formatLicenseNumber,
+  mergePsychologistTopicOptions,
   normalizeWhitespace,
   normalizeLicenseNumber,
   psychologistToForm,
   slugify,
-  psychologistTopicOptions,
+  type PsychologistTopicOption,
+  type PsychologistTopicRow,
   type PsychologistFormState,
   type PsychologistRecord,
   type PsychologistTopicKey,
@@ -21,6 +26,7 @@ import { LoadingBlock } from "../../components/ui/loading";
 const PLACEHOLDER_PHOTO =
   "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 800 1000'><rect width='800' height='1000' rx='48' fill='%23F6F1EA'/><circle cx='400' cy='330' r='120' fill='%23D8C7B8'/><path d='M220 860c42-122 130-182 180-182s138 60 180 182' fill='%23D8C7B8'/><path d='M320 320c0 44 36 80 80 80s80-36 80-80-36-80-80-80-80 36-80 80z' fill='%23F1E4D8'/></svg>";
 const CONTENT_IMAGE_BUCKET = "content-images";
+const MAX_TOPICS = 6;
 
 function getStorageObjectPath(url: string) {
   if (!url.trim()) {
@@ -57,6 +63,45 @@ export default function PsychologistEditorPage() {
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState("");
   const [form, setForm] = useState<PsychologistFormState>(() => emptyPsychologistForm());
   const [previewLanguage, setPreviewLanguage] = useState<"th" | "en">("th");
+  const [topicOptions, setTopicOptions] = useState<PsychologistTopicOption[]>(defaultPsychologistTopicOptions);
+  const [customTopicDraft, setCustomTopicDraft] = useState({
+    label_th: "",
+    label_en: "",
+  });
+  const [topicManagerOpen, setTopicManagerOpen] = useState(false);
+  const [topicSaving, setTopicSaving] = useState(false);
+  const [editingTopicKey, setEditingTopicKey] = useState<string | null>(null);
+  const [editingTopicDraft, setEditingTopicDraft] = useState({
+    label_th: "",
+    label_en: "",
+  });
+  const [topicSearch, setTopicSearch] = useState("");
+  const [topicConfirm, setTopicConfirm] = useState<
+    | {
+        kind: "create";
+        slug: string;
+        label_th: string;
+        label_en: string;
+      }
+    | {
+        kind: "save";
+        topic: PsychologistTopicOption;
+        label_th: string;
+        label_en: string;
+      }
+    | {
+        kind: "delete";
+        topic: PsychologistTopicOption;
+      }
+    | null
+  >(null);
+  const [topicToast, setTopicToast] = useState<{
+    kind: "success" | "error";
+    message: string;
+  } | null>(null);
+  const hydratedFormKeyRef = useRef<string | null>(null);
+  const formDirtyRef = useRef(false);
+  const topicToastTimeoutRef = useRef<number | null>(null);
 
   const loadPsychologists = async () => {
     const { data, error: queryError } = await supabase
@@ -76,8 +121,27 @@ export default function PsychologistEditorPage() {
     setLoading(false);
   };
 
+  const loadTopicOptions = async () => {
+    const { data, error: queryError } = await supabase
+      .from("psychologist_topics")
+      .select("slug,label_th,label_en,is_custom,sort_order,active")
+      .order("sort_order", { ascending: true })
+      .order("slug", { ascending: true });
+
+    if (queryError) {
+      setError(queryError.message);
+      setTopicOptions(mergePsychologistTopicOptions([]));
+      return;
+    }
+
+    setTopicOptions(
+      mergePsychologistTopicOptions((data ?? []) as PsychologistTopicRow[]),
+    );
+  };
+
   useEffect(() => {
     void loadPsychologists();
+    void loadTopicOptions();
   }, []);
 
   useEffect(() => {
@@ -87,29 +151,53 @@ export default function PsychologistEditorPage() {
     return () => window.clearTimeout(timeout);
   }, [notice]);
 
+  useEffect(() => {
+    if (!topicToast) return undefined;
+
+    if (topicToastTimeoutRef.current) {
+      window.clearTimeout(topicToastTimeoutRef.current);
+    }
+
+    topicToastTimeoutRef.current = window.setTimeout(() => {
+      setTopicToast(null);
+      topicToastTimeoutRef.current = null;
+    }, 3500);
+
+    return () => {
+      if (topicToastTimeoutRef.current) {
+        window.clearTimeout(topicToastTimeoutRef.current);
+        topicToastTimeoutRef.current = null;
+      }
+    };
+  }, [topicToast]);
+
   const selectedPsychologist = useMemo(
     () => psychologists.find((row) => row.id === id) ?? null,
     [id, psychologists],
   );
 
   useEffect(() => {
-    if (!isNew && selectedPsychologist) {
-      setForm(psychologistToForm(selectedPsychologist));
+    if (!isNew && selectedPsychologist && (!formDirtyRef.current || hydratedFormKeyRef.current !== selectedPsychologist.id)) {
+      setForm(psychologistToForm(selectedPsychologist, topicOptions));
       setSlugTouched(true);
       setPhotoFile(null);
       setPreviewLanguage("th");
+      hydratedFormKeyRef.current = selectedPsychologist.id;
+      formDirtyRef.current = false;
       return;
     }
 
-    if (isNew) {
+    if (isNew && (!formDirtyRef.current || hydratedFormKeyRef.current !== "__new__")) {
       const nextSortOrder =
         psychologists.length === 0 ? 0 : Math.max(...psychologists.map((row) => row.sort_order)) + 1;
       setForm(emptyPsychologistForm(nextSortOrder));
       setSlugTouched(false);
       setPhotoFile(null);
       setPreviewLanguage("th");
+      hydratedFormKeyRef.current = "__new__";
+      formDirtyRef.current = false;
     }
-  }, [isNew, psychologists, selectedPsychologist]);
+  }, [isNew, psychologists, selectedPsychologist, topicOptions]);
 
   useEffect(() => {
     if (photoFile) {
@@ -126,6 +214,7 @@ export default function PsychologistEditorPage() {
     field: keyof PsychologistFormState,
     value: string | boolean | number,
   ) => {
+    formDirtyRef.current = true;
     setForm((current) => {
       const next = { ...current, [field]: value } as PsychologistFormState;
 
@@ -138,12 +227,230 @@ export default function PsychologistEditorPage() {
   };
 
   const toggleTopic = (topic: PsychologistTopicKey) => {
+    formDirtyRef.current = true;
     setForm((current) => ({
       ...current,
-      topics: current.topics.includes(topic)
-        ? current.topics.filter((item) => item !== topic)
-        : [...current.topics, topic],
+      topics:
+        current.topics.includes(topic) || current.topics.length < MAX_TOPICS
+          ? current.topics.includes(topic)
+            ? current.topics.filter((item) => item !== topic)
+            : [...current.topics, topic]
+          : current.topics,
     }));
+  };
+
+  const existingTopicKeys = new Set(topicOptions.map((topic) => topic.key));
+  const filteredTopicOptions = topicOptions.filter((topic) => {
+    const query = topicSearch.trim().toLowerCase();
+
+    if (!query) {
+      return true;
+    }
+
+    return (
+      topic.key.toLowerCase().includes(query) ||
+      topic.label.th.toLowerCase().includes(query) ||
+      topic.label.en.toLowerCase().includes(query)
+    );
+  });
+
+  const requestCreateCustomTopic = () => {
+    const labelTh = normalizeWhitespace(customTopicDraft.label_th);
+    const labelEn = normalizeWhitespace(customTopicDraft.label_en);
+
+    if (!labelTh || !labelEn) {
+      setError("Please fill in both topic labels.");
+      return;
+    }
+
+    const slug = createUniqueTopicSlug(labelTh, existingTopicKeys);
+
+    setTopicConfirm({
+      kind: "create",
+      slug,
+      label_th: labelTh,
+      label_en: labelEn,
+    });
+  };
+
+  const persistCustomTopic = async (slug: string, labelTh: string, labelEn: string) => {
+    setTopicSaving(true);
+    setError("");
+    setNotice("");
+
+    const nextSortOrder =
+      topicOptions.length === 0 ? 0 : Math.max(...topicOptions.map((topic) => topic.sort_order)) + 1;
+
+    const { error: saveError } = await supabase.from("psychologist_topics").upsert(
+      {
+        slug,
+        label_th: labelTh,
+        label_en: labelEn,
+        is_custom: true,
+        active: true,
+        sort_order: nextSortOrder,
+      },
+      { onConflict: "slug" },
+    );
+
+    if (saveError) {
+      setError(saveError.message);
+      setTopicToast({ kind: "error", message: saveError.message });
+      setTopicSaving(false);
+      return;
+    }
+
+    await loadTopicOptions();
+    let addedToForm = false;
+    setForm((current) =>
+      current.topics.includes(slug) || current.topics.length >= MAX_TOPICS
+        ? current
+        : ((addedToForm = true), { ...current, topics: [...current.topics, slug] }),
+    );
+    if (addedToForm) {
+      formDirtyRef.current = true;
+    }
+    setTopicSaving(false);
+    closeTopicManager();
+    setTopicToast({ kind: "success", message: "Custom topic added successfully." });
+  };
+
+  const openTopicManager = () => {
+    setTopicManagerOpen(true);
+    setEditingTopicKey(null);
+    setError("");
+  };
+
+  const closeTopicManager = () => {
+    setTopicManagerOpen(false);
+    setEditingTopicKey(null);
+    setEditingTopicDraft({ label_th: "", label_en: "" });
+    setCustomTopicDraft({ label_th: "", label_en: "" });
+    setTopicSearch("");
+  };
+
+  const startEditingTopic = (topic: PsychologistTopicOption) => {
+    setEditingTopicKey(topic.key);
+    setEditingTopicDraft({
+      label_th: topic.label.th,
+      label_en: topic.label.en,
+    });
+  };
+
+  const cancelEditingTopic = () => {
+    setEditingTopicKey(null);
+    setEditingTopicDraft({ label_th: "", label_en: "" });
+  };
+
+  const requestSaveTopicChanges = (topic: PsychologistTopicOption) => {
+    const labelTh = normalizeWhitespace(editingTopicDraft.label_th);
+    const labelEn = normalizeWhitespace(editingTopicDraft.label_en);
+
+    if (!labelTh || !labelEn) {
+      setError("Please fill in both topic labels.");
+      return;
+    }
+
+    setTopicConfirm({
+      kind: "save",
+      topic,
+      label_th: labelTh,
+      label_en: labelEn,
+    });
+  };
+
+  const persistTopicChanges = async (topic: PsychologistTopicOption, labelTh: string, labelEn: string) => {
+    setTopicSaving(true);
+    setError("");
+    setNotice("");
+
+    const { error: saveError } = await supabase.from("psychologist_topics").upsert(
+      {
+        slug: topic.key,
+        label_th: labelTh,
+        label_en: labelEn,
+        is_custom: topic.is_custom,
+        active: true,
+        sort_order: topic.sort_order,
+      },
+      { onConflict: "slug" },
+    );
+
+    if (saveError) {
+      setError(saveError.message);
+      setTopicToast({ kind: "error", message: saveError.message });
+      setTopicSaving(false);
+      return;
+    }
+
+    await loadTopicOptions();
+    setTopicSaving(false);
+    setEditingTopicKey(null);
+    setEditingTopicDraft({ label_th: "", label_en: "" });
+    setTopicToast({ kind: "success", message: "Topic updated successfully." });
+  };
+
+  const requestDeleteTopic = (topic: PsychologistTopicOption) => {
+    if (!topic.is_custom) {
+      setError("Built-in topics cannot be deleted.");
+      setTopicToast({ kind: "error", message: "Built-in topics cannot be deleted." });
+      return;
+    }
+
+    setTopicConfirm({ kind: "delete", topic });
+  };
+
+  const removeTopic = async (topic: PsychologistTopicOption) => {
+    setTopicSaving(true);
+    setError("");
+    setNotice("");
+
+    const { error: deleteError } = await supabase.from("psychologist_topics").delete().eq("slug", topic.key);
+
+    if (deleteError) {
+      setError(deleteError.message);
+      setTopicToast({ kind: "error", message: deleteError.message });
+      setTopicSaving(false);
+      return;
+    }
+
+    let removedFromForm = false;
+    setForm((current) =>
+      current.topics.includes(topic.key)
+        ? ((removedFromForm = true), { ...current, topics: current.topics.filter((item) => item !== topic.key) })
+        : current,
+    );
+
+    if (removedFromForm) {
+      formDirtyRef.current = true;
+    }
+
+    await loadTopicOptions();
+    setTopicSaving(false);
+    setEditingTopicKey(null);
+    setEditingTopicDraft({ label_th: "", label_en: "" });
+    setTopicToast({ kind: "success", message: "Topic deleted successfully." });
+  };
+
+  const confirmTopicAction = async () => {
+    if (!topicConfirm) {
+      return;
+    }
+
+    if (topicConfirm.kind === "create") {
+      await persistCustomTopic(topicConfirm.slug, topicConfirm.label_th, topicConfirm.label_en);
+      setTopicConfirm(null);
+      return;
+    }
+
+    if (topicConfirm.kind === "save") {
+      await persistTopicChanges(topicConfirm.topic, topicConfirm.label_th, topicConfirm.label_en);
+      setTopicConfirm(null);
+      return;
+    }
+
+    await removeTopic(topicConfirm.topic);
+    setTopicConfirm(null);
   };
 
   const previewName =
@@ -159,8 +466,8 @@ export default function PsychologistEditorPage() {
   const previewQuote =
     previewLanguage === "th" ? normalizeWhitespace(form.quote_th) || "-" : normalizeWhitespace(form.quote_en) || "-";
   const previewFocusTags = form.topics
-    .map((topic) => psychologistTopicOptions.find((option) => option.key === topic))
-    .filter(Boolean) as Array<(typeof psychologistTopicOptions)[number]>;
+    .map((topic) => topicOptions.find((option) => option.key === topic))
+    .filter(Boolean) as PsychologistTopicOption[];
 
   const handleSave = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -258,9 +565,10 @@ export default function PsychologistEditorPage() {
 
     if (data) {
       const saved = data as PsychologistRecord;
-      setForm(psychologistToForm(saved));
+      setForm(psychologistToForm(saved, topicOptions));
       setSlugTouched(true);
       setPhotoFile(null);
+      formDirtyRef.current = false;
       navigate(`/psychologists/edit/${saved.id}`, { replace: true });
       return;
     }
@@ -269,6 +577,7 @@ export default function PsychologistEditorPage() {
       setForm(emptyPsychologistForm(Number(form.sort_order) + 1));
       setSlugTouched(false);
       setPhotoFile(null);
+      formDirtyRef.current = false;
       navigate("/psychologists/create", { replace: true });
     }
   };
@@ -420,6 +729,34 @@ export default function PsychologistEditorPage() {
         <p className="rounded-2xl border border-[#b9d7b1] bg-[rgba(237,247,233,0.98)] px-4 py-3 text-sm text-[#35613a] shadow-[0_14px_36px_rgba(65,43,27,0.06)]">
           {notice}
         </p>
+      ) : null}
+
+      {topicToast ? (
+        <div className="fixed bottom-5 right-5 z-[70] w-[min(92vw,420px)]">
+          <div
+            className={[
+              "flex items-start gap-3 rounded-[20px] border px-4 py-3 shadow-[0_16px_40px_rgba(65,43,27,0.16)] backdrop-blur-sm",
+              topicToast.kind === "success"
+                ? "border-[#b9d7b1] bg-[rgba(237,247,233,0.98)] text-[#35613a]"
+                : "border-[#e6c7c3] bg-[rgba(255,243,241,0.98)] text-[#a94135]",
+            ].join(" ")}
+          >
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium">
+                {topicToast.kind === "success" ? "Success" : "Error"}
+              </div>
+              <div className="mt-1 text-sm leading-6">{topicToast.message}</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setTopicToast(null)}
+              className="mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-full border border-current/15 bg-white/70 transition-colors hover:bg-white"
+              aria-label="Dismiss notification"
+            >
+              <X size={14} strokeWidth={2} aria-hidden="true" />
+            </button>
+          </div>
+        </div>
       ) : null}
 
       {!isNew && !selectedPsychologist ? (
@@ -711,24 +1048,48 @@ export default function PsychologistEditorPage() {
                 </div>
 
                 <div className="grid gap-3 rounded-[24px] border border-[#e3d4c6] bg-white/75 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="grid gap-1">
+                      <span className="text-sm text-[#7b6d5f]">Topics (Up to 6)</span>
+                      <span className="text-xs text-[#7b6d5f]">Use the icon to edit or delete saved topics.</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={openTopicManager}
+                      className={adminIconButtonClass}
+                      aria-label="Manage topics"
+                      title="Manage topics"
+                    >
+                      <PencilLine size={15} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                  </div>
                   <div className="grid gap-1">
-                    <span className="text-sm text-[#7b6d5f]">Topics</span>
                     <div className="flex flex-wrap gap-2">
-                      {psychologistTopicOptions.map((topic) => (
+                      {topicOptions.map((topic) => (
                         <button
                           key={topic.key}
                           type="button"
                           onClick={() => toggleTopic(topic.key)}
+                          disabled={!form.topics.includes(topic.key) && form.topics.length >= MAX_TOPICS}
                           className={[
                             "rounded-full border px-3 py-1.5 text-sm transition-colors",
                             form.topics.includes(topic.key)
                               ? "border-[#6f4f40] bg-[#6f4f40] text-white"
-                              : "border-[#e3d4c6] bg-white text-[#7b6d5f] hover:bg-[#f7efe6] hover:text-[#2f2a24]",
+                              : form.topics.length >= MAX_TOPICS
+                                ? "cursor-not-allowed border-[#eadfD5] bg-[#faf7f3] text-[#c0b3a5]"
+                                : "border-[#e3d4c6] bg-white text-[#7b6d5f] hover:bg-[#f7efe6] hover:text-[#2f2a24]",
                           ].join(" ")}
                         >
                           {topic.label.th}
                         </button>
                       ))}
+                      <button
+                        type="button"
+                        onClick={openTopicManager}
+                        className="rounded-full border border-dashed border-[#cdbfb0] bg-[#fbf8f4] px-3 py-1.5 text-sm text-[#7b6d5f] transition-colors hover:bg-[#f7efe6] hover:text-[#2f2a24]"
+                      >
+                        อื่นๆ
+                      </button>
                     </div>
                   </div>
 
@@ -767,6 +1128,271 @@ export default function PsychologistEditorPage() {
           </form>
         </section>
       )}
+
+      {topicManagerOpen ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-[rgba(37,27,19,0.36)] p-5 backdrop-blur-sm">
+          <div className="flex max-h-[88vh] w-full max-w-[760px] flex-col rounded-[24px] border border-[#e3d4c6] bg-[rgba(255,253,249,0.97)] shadow-[0_20px_50px_rgba(65,43,27,0.18)]">
+            <div className="flex items-start justify-between gap-4 border-b border-[#e3d4c6] px-6 py-5">
+              <div className="grid gap-1">
+                <div className="text-xs font-medium tracking-[0.18em] text-[#7b6d5f] uppercase">
+                  Topic manager
+                </div>
+                <h2 className="text-2xl font-semibold tracking-tight text-[#2f2a24]">
+                  Edit and delete topics
+                </h2>
+                <p className="text-sm leading-6 text-[#7b6d5f]">
+                  Built-in topics can be renamed. Custom topics can be renamed or deleted.
+                </p>
+              </div>
+              <button
+                type="button"
+                className={adminIconButtonClass}
+                onClick={closeTopicManager}
+                aria-label="Close topic manager"
+                title="Close"
+                disabled={topicSaving}
+              >
+                <X size={15} strokeWidth={2} aria-hidden="true" />
+              </button>
+            </div>
+
+            <div className="grid gap-5 overflow-y-auto px-6 py-5">
+              <section className="grid gap-3 rounded-[22px] border border-[#e3d4c6] bg-white/75 p-4">
+                <div className="grid gap-1">
+                  <div className="text-sm font-medium text-[#2f2a24]">Create custom topic</div>
+                  <div className="text-xs text-[#7b6d5f]">
+                    New topics are added as custom entries and can be selected right away.
+                  </div>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="grid gap-1 text-sm text-[#7b6d5f]">
+                    <span>Topic label (TH)</span>
+                    <input
+                      value={customTopicDraft.label_th}
+                      onChange={(event) =>
+                        setCustomTopicDraft((current) => ({ ...current, label_th: event.target.value }))
+                      }
+                      className="h-11 rounded-2xl border border-[#e3d4c6] bg-white px-3 text-sm text-[#2f2a24] outline-none"
+                      placeholder="เช่น ปัญหาการนอน"
+                      disabled={topicSaving}
+                    />
+                  </label>
+                  <label className="grid gap-1 text-sm text-[#7b6d5f]">
+                    <span>Topic label (EN)</span>
+                    <input
+                      value={customTopicDraft.label_en}
+                      onChange={(event) =>
+                        setCustomTopicDraft((current) => ({ ...current, label_en: event.target.value }))
+                      }
+                      className="h-11 rounded-2xl border border-[#e3d4c6] bg-white px-3 text-sm text-[#2f2a24] outline-none"
+                      placeholder="Sleep Issues"
+                      disabled={topicSaving}
+                    />
+                  </label>
+                </div>
+                <div className="flex items-end justify-end">
+                  <button
+                    type="button"
+                    onClick={requestCreateCustomTopic}
+                    className="inline-flex h-11 items-center gap-2 rounded-full bg-[#6f4f40] px-4 text-sm font-medium text-white transition-colors hover:bg-[#5d4337]"
+                    disabled={topicSaving}
+                  >
+                    Add topic
+                  </button>
+                </div>
+              </section>
+
+              <section className="grid gap-3">
+                <div className="flex flex-wrap items-end justify-between gap-3">
+                  <div className="text-sm font-medium text-[#2f2a24]">Saved topics</div>
+                  <label className="grid gap-1 text-sm text-[#7b6d5f] sm:min-w-[280px]">
+                    <input
+                      value={topicSearch}
+                      onChange={(event) => setTopicSearch(event.target.value)}
+                      className="h-11 rounded-2xl border border-[#e3d4c6] bg-white px-3 text-sm text-[#2f2a24] outline-none"
+                      placeholder="Search by Thai, English"
+                      disabled={topicSaving}
+                    />
+                  </label>
+                </div>
+                <div className="grid gap-3">
+                  {filteredTopicOptions.length === 0 ? (
+                    <div className="rounded-[22px] border border-dashed border-[#e3d4c6] bg-white/70 px-4 py-6 text-sm text-[#7b6d5f]">
+                      No topics match your search.
+                    </div>
+                  ) : null}
+                  {filteredTopicOptions.map((topic) => (
+                    <article
+                      key={topic.key}
+                      className="grid gap-3 rounded-[22px] border border-[#e3d4c6] bg-white/85 p-4"
+                    >
+                      {editingTopicKey === topic.key ? (
+                        <div className="grid gap-3">
+                          <div className="grid gap-3 md:grid-cols-2">
+                            <label className="grid gap-1 text-sm text-[#7b6d5f]">
+                              <span>Label (TH)</span>
+                              <input
+                                value={editingTopicDraft.label_th}
+                                onChange={(event) =>
+                                  setEditingTopicDraft((current) => ({ ...current, label_th: event.target.value }))
+                                }
+                                className="h-11 rounded-2xl border border-[#e3d4c6] bg-white px-3 text-sm text-[#2f2a24] outline-none"
+                                disabled={topicSaving}
+                              />
+                            </label>
+                            <label className="grid gap-1 text-sm text-[#7b6d5f]">
+                              <span>Label (EN)</span>
+                              <input
+                                value={editingTopicDraft.label_en}
+                                onChange={(event) =>
+                                  setEditingTopicDraft((current) => ({ ...current, label_en: event.target.value }))
+                                }
+                                className="h-11 rounded-2xl border border-[#e3d4c6] bg-white px-3 text-sm text-[#2f2a24] outline-none"
+                                disabled={topicSaving}
+                              />
+                            </label>
+                          </div>
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={cancelEditingTopic}
+                              className="inline-flex h-10 items-center rounded-full border border-[#e3d4c6] bg-white px-4 text-sm font-medium text-[#7b6d5f] transition-colors hover:bg-[#f7efe6] hover:text-[#2f2a24]"
+                              disabled={topicSaving}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => requestSaveTopicChanges(topic)}
+                              className="inline-flex h-10 items-center rounded-full bg-[#6f4f40] px-4 text-sm font-medium text-white transition-colors hover:bg-[#5d4337]"
+                              disabled={topicSaving}
+                            >
+                              Save changes
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="grid gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-sm font-medium text-[#2f2a24]">{topic.label.th}</span>
+                              {topic.is_custom ? (
+                                <span className="rounded-full bg-[rgba(185,215,177,0.3)] px-2.5 py-1 text-[11px] font-medium text-[#35613a]">
+                                  Custom
+                                </span>
+                              ) : (
+                                <span className="rounded-full bg-[rgba(231,228,222,0.9)] px-2.5 py-1 text-[11px] font-medium text-[#7b6d5f]">
+                                  Built-in
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-sm text-[#7b6d5f]">{topic.label.en}</div>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => startEditingTopic(topic)}
+                              className="inline-flex h-10 items-center gap-2 rounded-full border border-[#e3d4c6] bg-white px-4 text-sm font-medium text-[#7b6d5f] transition-colors hover:bg-[#f7efe6] hover:text-[#2f2a24]"
+                              disabled={topicSaving}
+                            >
+                              <PencilLine size={15} strokeWidth={2} />
+                              Edit
+                            </button>
+                            {topic.is_custom ? (
+                              <button
+                                type="button"
+                                onClick={() => requestDeleteTopic(topic)}
+                                className="inline-flex h-10 items-center gap-2 rounded-full border border-[#e6c7c3] bg-white px-4 text-sm font-medium text-[#a94135] transition-colors hover:bg-[#fff3f1]"
+                                disabled={topicSaving}
+                                title="Delete custom topic"
+                              >
+                                <Trash2 size={15} strokeWidth={2} />
+                                Delete
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {topicConfirm ? (
+        <div className="fixed inset-0 z-[60] grid place-items-center bg-[rgba(37,27,19,0.42)] p-5 backdrop-blur-sm">
+          <div className="w-full max-w-[520px] rounded-[24px] border border-[#e3d4c6] bg-[rgba(255,253,249,0.97)] p-6 shadow-[0_20px_50px_rgba(65,43,27,0.22)]">
+            <div className="text-xs font-medium tracking-[0.18em] text-[#7b6d5f] uppercase">
+              Confirm action
+            </div>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[#2f2a24]">
+              {topicConfirm.kind === "create"
+                ? "Create topic?"
+                : topicConfirm.kind === "save"
+                  ? "Save topic changes?"
+                  : "Delete topic?"}
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-[#7b6d5f]">
+              {topicConfirm.kind === "create"
+                ? "This will create a topic that becomes available to everyone in the admin and public views."
+                : topicConfirm.kind === "save"
+                  ? "This will update the topic label for everyone using this topic across the admin and public views."
+                  : "This will remove the topic for everyone. Psychologist records that use it will lose this topic."
+              }
+            </p>
+            <div className="mt-4 rounded-2xl border border-[#e3d4c6] bg-white/80 p-4">
+              <div className="text-sm font-medium text-[#2f2a24]">
+                {topicConfirm.kind === "create" ? topicConfirm.label_th : topicConfirm.topic.label.th}
+              </div>
+              <div className="mt-1 text-sm text-[#7b6d5f]">
+                {topicConfirm.kind === "create" ? topicConfirm.label_en : topicConfirm.topic.label.en}
+              </div>
+              <div className="mt-2 text-xs text-[#b39f8f]">
+                {topicConfirm.kind === "create"
+                  ? `New labels: ${topicConfirm.label_th} / ${topicConfirm.label_en}`
+                  : topicConfirm.kind === "save"
+                  ? `New labels: ${topicConfirm.label_th} / ${topicConfirm.label_en}`
+                  : topicConfirm.topic.is_custom
+                    ? "Custom topic will be deleted."
+                    : "Built-in topics cannot be deleted."
+                }
+              </div>
+            </div>
+            <div className="mt-5 flex flex-wrap justify-end gap-3">
+              <button
+                type="button"
+                className="inline-flex h-11 items-center justify-center rounded-full border border-[#e3d4c6] bg-white px-4 text-sm font-medium text-[#7b6d5f] transition-colors hover:bg-[#f7efe6] hover:text-[#2f2a24]"
+                onClick={() => setTopicConfirm(null)}
+                disabled={topicSaving}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={[
+                  "inline-flex h-11 items-center rounded-full px-4 text-sm font-medium text-white transition-colors",
+                  topicConfirm.kind === "create" || topicConfirm.kind === "save"
+                    ? "bg-[#6f4f40] hover:bg-[#5d4337]"
+                    : "bg-[#a94135] hover:bg-[#8d3429]",
+                ].join(" ")}
+                onClick={() => void confirmTopicAction()}
+                disabled={topicSaving}
+              >
+                {topicSaving
+                  ? "Saving..."
+                  : topicConfirm.kind === "create"
+                    ? "Confirm create"
+                    : topicConfirm.kind === "save"
+                      ? "Confirm save"
+                      : "Confirm delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {deleteTarget ? (
         <div className="fixed inset-0 z-50 grid place-items-center bg-[rgba(37,27,19,0.36)] p-5 backdrop-blur-sm">

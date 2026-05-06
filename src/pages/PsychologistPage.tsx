@@ -11,7 +11,11 @@ import { resolvePsychologistPhotoUrl } from "../assets/images/psychologists";
 import {
   formatPsychologistName,
   formatLicenseNumber,
-  psychologistTopicOptions,
+  defaultPsychologistTopicOptions,
+  getPsychologistTopicLabel,
+  mergePsychologistTopicOptions,
+  type PsychologistTopicOption,
+  type PsychologistTopicRow,
   type PsychologistRecord,
 } from "./psychologists/psychologistShared";
 import { LoadingBlock } from "../components/ui/loading";
@@ -25,6 +29,7 @@ export default function PsychologistPage() {
   const [searchText, setSearchText] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
   const [psychologists, setPsychologists] = useState<PsychologistRecord[]>([]);
+  const [topicOptions, setTopicOptions] = useState<PsychologistTopicOption[]>(defaultPsychologistTopicOptions);
   const [orderedIds, setOrderedIds] = useState<string[]>([]);
   const [draggedId, setDraggedId] = useState<string | null>(null);
 
@@ -53,8 +58,26 @@ export default function PsychologistPage() {
     setLoading(false);
   };
 
+  const loadTopicOptions = async () => {
+    const { data, error: queryError } = await supabase
+      .from("psychologist_topics")
+      .select("slug,label_th,label_en,is_custom,sort_order,active")
+      .order("sort_order", { ascending: true })
+      .order("slug", { ascending: true });
+
+    if (queryError) {
+      setTopicOptions(mergePsychologistTopicOptions([]));
+      return;
+    }
+
+    setTopicOptions(
+      mergePsychologistTopicOptions((data ?? []) as PsychologistTopicRow[]),
+    );
+  };
+
   useEffect(() => {
     void loadPsychologists();
+    void loadTopicOptions();
   }, []);
 
   useEffect(() => {
@@ -312,9 +335,7 @@ export default function PsychologistPage() {
                     </div>
                     <div className="mt-2 flex flex-wrap gap-2">
                       {row.topics.slice(0, 3).map((topic) => {
-                        const topicLabel =
-                          psychologistTopicOptions.find((option) => option.key === topic)?.label
-                            .th ?? topic;
+                        const topicLabel = getPsychologistTopicLabel(topic, topicOptions);
                         return (
                           <span
                             key={topic}
