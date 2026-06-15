@@ -6,7 +6,7 @@ import logoMindbloom from "../assets/svgs/logo-mindbloom.svg";
 import { LoadingScreen } from "../components/ui/loading";
 
 export default function LoginPage() {
-  const { session, loading, user, isAdmin, accessError } = useAuth();
+  const { session, loading, user, isAdmin, needsPasswordSetup, accessError } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState("");
@@ -18,10 +18,15 @@ export default function LoginPage() {
   const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? "/";
 
   useEffect(() => {
+    if (session && user && isAdmin && needsPasswordSetup) {
+      navigate("/reset-password", { replace: true });
+      return;
+    }
+
     if (session && user && isAdmin) {
       navigate(from, { replace: true });
     }
-  }, [from, isAdmin, navigate, session, user]);
+  }, [from, isAdmin, navigate, needsPasswordSetup, session, user]);
 
   if (loading) {
     return (
@@ -31,6 +36,10 @@ export default function LoginPage() {
         description="Verifying whether an admin session is already active."
       />
     );
+  }
+
+  if (session && user && isAdmin && needsPasswordSetup) {
+    return <Navigate to="/reset-password" replace />;
   }
 
   if (session && user && isAdmin) {
