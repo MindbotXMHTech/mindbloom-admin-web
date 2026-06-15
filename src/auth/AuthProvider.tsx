@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -29,10 +30,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [needsPasswordSetup, setNeedsPasswordSetup] = useState(false);
   const [accessError, setAccessError] = useState("");
+  const mountedRef = useRef(true);
 
-  useEffect(() => {
-    let isMounted = true;
+  const signOut = useCallback(async () => {
+    await supabase.auth.signOut();
+  }, []);
 
+  const refreshAccess = useCallback(async (options: { showLoading?: boolean } = {}) => {
     const clearRejectedSession = async () => {
       setSession(null);
       setIsAdmin(false);
@@ -45,115 +49,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    const syncSession = async (
-      nextSession: Session | null,
-      options: { showLoading?: boolean } = {},
-    ) => {
-      if (!isMounted) return;
-
-      if (options.showLoading) {
-        setLoading(true);
-      }
-
-      setAccessError("");
-      setSession(nextSession);
-
-      if (!nextSession) {
-        setIsAdmin(false);
-        setNeedsPasswordSetup(false);
-        setLoading(false);
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from("admin_users")
-        .select("role,is_active,email,needs_password_setup")
-        .eq("user_id", nextSession.user.id)
-        .maybeSingle();
-
-      if (!isMounted) return;
-
-      if (error) {
-        setAccessError(error.message);
-        await clearRejectedSession();
-        setLoading(false);
-        return;
-      }
-
-      if (!data) {
-        setAccessError("You do not have admin access.");
-        await clearRejectedSession();
-        setLoading(false);
-        return;
-      }
-
-      if (!data.is_active) {
-        setAccessError("Your admin access has been disabled.");
-        await clearRejectedSession();
-        setLoading(false);
-        return;
-      }
-
-      setIsAdmin(true);
-      setNeedsPasswordSetup(Boolean(data.needs_password_setup));
-      setLoading(false);
-    };
-
-    const refreshAccess = async (options: { showLoading?: boolean } = {}) => {
-      const { data } = await supabase.auth.getSession();
-      await syncSession(data.session, options);
-    };
-
-    void refreshAccess({ showLoading: true });
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(
-      (_event, nextSession) => {
-        void syncSession(nextSession);
-      },
-    );
-
-    const handleFocus = () => {
-      void refreshAccess();
-    };
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        void refreshAccess();
-      }
-    };
-
-    window.addEventListener("focus", handleFocus);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    const accessCheckInterval = window.setInterval(() => {
-      if (document.visibilityState === "visible") {
-        void refreshAccess();
-      }
-    }, 30000);
-
-    return () => {
-      isMounted = false;
-      window.removeEventListener("focus", handleFocus);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.clearInterval(accessCheckInterval);
-      subscription.unsubscribe();
-    };
-  }, []);
-
-  const signOut = useCallback(async () => {
-    await supabase.auth.signOut();
-  }, []);
-
-  const refreshAccess = useCallback(async (options: { showLoading?: boolean } = {}) => {
     if (options.showLoading) {
       setLoading(true);
     }
 
-    const { data } = await supabase.auth.getSession();
+    const { data: sessionData } = await supabase.auth.getSession();
+    const nextSession = sessionData.session;
 
-    if (!data.session) {
-      setSession(null);
+    if (!mountedRef.current) return;
+
+    setAccessError("");
+    setSession(nextSession);
+
+    if (!nextSession) {
       setIsAdmin(false);
       setNeedsPasswordSetup(false);
       setLoading(false);
@@ -163,15 +71,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: adminData, error } = await supabase
       .from("admin_users")
       .select("is_active,needs_password_setup")
-      .eq("user_id", data.session.user.id)
+      .eq("user_id", nextSession.user.id)
       .maybeSingle();
+
+    if (!mountedRef.current) return;
 
     if (error) {
       setAccessError(error.message);
-      setSession(null);
-      setIsAdmin(false);
-      setNeedsPasswordSetup(false);
-      await supabase.auth.signOut();
+      await clearRejectedSession();
       setLoading(false);
       return;
     }
@@ -180,20 +87,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setAccessError(
         adminData ? "Your admin access has been disabled." : "You do not have admin access.",
       );
-      setSession(null);
-      setIsAdmin(false);
-      setNeedsPasswordSetup(false);
-      await supabase.auth.signOut();
+      await clearRejectedSession();
       setLoading(false);
       return;
     }
 
-    setAccessError("");
-    setSession(data.session);
     setIsAdmin(true);
     setNeedsPasswordSetup(Boolean(adminData.needs_password_setup));
     setLoading(false);
   }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void refreshAccess({ showLoading: true });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(() => {
+      void refreshAccess();
+    });
+
+    const refreshVisibleAccess = () => {
+      if (document.visibilityState === "visible") {
+        void refreshAccess();
+      }
+    };
+
+    window.addEventListener("focus", refreshVisibleAccess);
+    document.addEventListener("visibilitychange", refreshVisibleAccess);
+    const accessCheckInterval = window.setInterval(refreshVisibleAccess, 30000);
+
+    return () => {
+      mountedRef.current = false;
+      window.removeEventListener("focus", refreshVisibleAccess);
+      document.removeEventListener("visibilitychange", refreshVisibleAccess);
+      window.clearInterval(accessCheckInterval);
+      subscription.unsubscribe();
+    };
+  }, [refreshAccess]);
 
   const value = useMemo(
     () => ({
