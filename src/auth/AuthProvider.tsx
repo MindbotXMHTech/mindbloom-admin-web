@@ -72,48 +72,61 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(true);
     }
 
-    const { data: sessionData } = await supabase.auth.getSession();
-    const nextSession = sessionData.session;
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const nextSession = sessionData.session;
 
-    if (!mountedRef.current) return;
+      if (!mountedRef.current) return;
 
-    setAccessError("");
-    setStableSession(nextSession);
+      setAccessError("");
+      setStableSession(nextSession);
 
-    if (!nextSession) {
-      setIsAdmin(false);
-      setNeedsPasswordSetup(false);
-      setLoading(false);
-      return;
-    }
+      if (!nextSession) {
+        setIsAdmin(false);
+        setNeedsPasswordSetup(false);
+        setLoading(false);
+        return;
+      }
 
-    const { data: adminData, error } = await supabase
-      .from("admin_users")
-      .select("is_active,needs_password_setup")
-      .eq("user_id", nextSession.user.id)
-      .maybeSingle();
+      const { data: adminData, error } = await supabase
+        .from("admin_users")
+        .select("is_active,needs_password_setup")
+        .eq("user_id", nextSession.user.id)
+        .maybeSingle();
 
-    if (!mountedRef.current) return;
+      if (!mountedRef.current) return;
 
-    if (error) {
-      setAccessError(error.message);
-      await clearRejectedSession();
-      setLoading(false);
-      return;
-    }
+      if (error) {
+        setAccessError(error.message);
+        await clearRejectedSession();
+        setLoading(false);
+        return;
+      }
 
-    if (!adminData || !adminData.is_active) {
+      if (!adminData || !adminData.is_active) {
+        setAccessError(
+          adminData ? "Your admin access has been disabled." : "You do not have admin access.",
+        );
+        await clearRejectedSession();
+        setLoading(false);
+        return;
+      }
+
+      setIsAdmin(true);
+      setNeedsPasswordSetup(Boolean(adminData.needs_password_setup));
+    } catch (refreshError) {
+      if (!mountedRef.current) return;
+
       setAccessError(
-        adminData ? "Your admin access has been disabled." : "You do not have admin access.",
+        refreshError instanceof Error
+          ? `Could not verify admin access: ${refreshError.message}`
+          : "Could not verify admin access. Check your connection and try again.",
       );
-      await clearRejectedSession();
-      setLoading(false);
-      return;
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+      }
     }
-
-    setIsAdmin(true);
-    setNeedsPasswordSetup(Boolean(adminData.needs_password_setup));
-    setLoading(false);
   }, []);
 
   useEffect(() => {
