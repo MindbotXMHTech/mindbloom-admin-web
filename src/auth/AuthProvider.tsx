@@ -32,13 +32,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [accessError, setAccessError] = useState("");
   const mountedRef = useRef(true);
 
+  const setStableSession = (nextSession: Session | null) => {
+    setSession((currentSession) => {
+      if (!currentSession && !nextSession) {
+        return currentSession;
+      }
+
+      if (
+        currentSession &&
+        nextSession &&
+        currentSession.user.id === nextSession.user.id &&
+        currentSession.access_token === nextSession.access_token
+      ) {
+        return currentSession;
+      }
+
+      return nextSession;
+    });
+  };
+
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
   }, []);
 
   const refreshAccess = useCallback(async (options: { showLoading?: boolean } = {}) => {
     const clearRejectedSession = async () => {
-      setSession(null);
+      setStableSession(null);
       setIsAdmin(false);
       setNeedsPasswordSetup(false);
 
@@ -59,7 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!mountedRef.current) return;
 
     setAccessError("");
-    setSession(nextSession);
+    setStableSession(nextSession);
 
     if (!nextSession) {
       setIsAdmin(false);

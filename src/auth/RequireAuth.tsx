@@ -5,14 +5,14 @@ import { useAuth } from "./AuthProvider";
 import { LoadingScreen } from "../components/ui/loading";
 
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const { loading, session, isAdmin, needsPasswordSetup, refreshAccess } = useAuth();
+  const { loading, session, user, isAdmin, needsPasswordSetup, refreshAccess } = useAuth();
   const location = useLocation();
 
   useEffect(() => {
-    if (session) {
+    if (user?.id) {
       void refreshAccess();
     }
-  }, [location.pathname, refreshAccess, session]);
+  }, [location.pathname, refreshAccess, user?.id]);
 
   if (loading) {
     return (
