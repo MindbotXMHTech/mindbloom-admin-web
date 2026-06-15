@@ -46,6 +46,71 @@ textarea {
   font: inherit;
 }
 
+.rich-content {
+  overflow-wrap: anywhere;
+}
+
+.rich-content:empty::before {
+  pointer-events: none;
+}
+
+.rich-content p,
+.rich-content h2,
+.rich-content h3,
+.rich-content blockquote,
+.rich-content ul,
+.rich-content ol {
+  margin: 0;
+}
+
+.rich-content > * + * {
+  margin-top: 0.7rem;
+}
+
+.rich-content h2 {
+  font-size: 1.2rem;
+  line-height: 1.45;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.rich-content h3 {
+  font-size: 1.05rem;
+  line-height: 1.5;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.rich-content ul,
+.rich-content ol {
+  padding-left: 1.35rem;
+}
+
+.rich-content ul {
+  list-style: disc;
+}
+
+.rich-content ol {
+  list-style: decimal;
+}
+
+.rich-content li + li {
+  margin-top: 0.35rem;
+}
+
+.rich-content blockquote {
+  border-left: 3px solid var(--accent);
+  padding: 0.35rem 0 0.35rem 0.9rem;
+  color: var(--muted);
+}
+
+.rich-content a {
+  color: var(--accent-strong);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .meta,
 .subtle {
   color: var(--muted);

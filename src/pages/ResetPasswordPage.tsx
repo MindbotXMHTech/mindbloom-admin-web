@@ -38,10 +38,10 @@ export default function ResetPasswordPage() {
 
   const completePasswordSetup = async () => {
     if (!supabaseUrl || !supabaseAnonKey || !session?.access_token) {
-      return;
+      throw new Error("Missing Supabase session or environment configuration.");
     }
 
-    await fetch(`${supabaseUrl}/functions/v1/admin-actions`, {
+    const response = await fetch(`${supabaseUrl}/functions/v1/admin-actions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -50,6 +50,21 @@ export default function ResetPasswordPage() {
       },
       body: JSON.stringify({ action: "complete_setup" }),
     });
+
+    const text = await response.text();
+    let payload: { error?: string } | null = null;
+
+    if (text) {
+      try {
+        payload = JSON.parse(text) as { error?: string };
+      } catch {
+        payload = null;
+      }
+    }
+
+    if (!response.ok) {
+      throw new Error(payload?.error ?? text ?? "Password setup could not be completed.");
+    }
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -86,8 +101,14 @@ export default function ResetPasswordPage() {
 
     try {
       await completePasswordSetup();
-    } catch {
-      // Keep the password reset successful even if the reminder flag fails to clear.
+    } catch (setupError) {
+      setError(
+        setupError instanceof Error
+          ? `Password was updated, but setup could not be completed: ${setupError.message}`
+          : "Password was updated, but setup could not be completed.",
+      );
+      setSaving(false);
+      return;
     }
 
     await supabase.auth.signOut();

@@ -1,10 +1,37 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ImageUp, Save, Trash2, X } from "lucide-react";
+import {
+  ArrowLeft,
+  Bold,
+  Heading2,
+  ImageUp,
+  Italic,
+  LinkIcon,
+  List,
+  ListOrdered,
+  Pilcrow,
+  Quote,
+  Redo2,
+  Save,
+  Trash2,
+  Underline,
+  Undo2,
+  X,
+} from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import {
+  contentToHtml,
   emptyForm,
   formatDate,
+  isBlankContent,
   postToForm,
   slugify,
   statusClass,
@@ -15,6 +42,205 @@ import {
 import { LoadingBlock } from "../../components/ui/loading";
 
 const CONTENT_IMAGE_BUCKET = "content-images";
+
+const ALLOWED_CONTENT_TAGS = new Set([
+  "A",
+  "B",
+  "BLOCKQUOTE",
+  "BR",
+  "DIV",
+  "EM",
+  "H2",
+  "H3",
+  "I",
+  "LI",
+  "OL",
+  "P",
+  "SPAN",
+  "STRONG",
+  "U",
+  "UL",
+]);
+
+const ALLOWED_CONTENT_ATTRIBUTES = new Set(["href", "target", "rel"]);
+
+function sanitizeRichContent(value: string) {
+  if (typeof window === "undefined") {
+    return value;
+  }
+
+  const template = document.createElement("template");
+  template.innerHTML = contentToHtml(value);
+
+  template.content.querySelectorAll("*").forEach((element) => {
+    if (element.tagName === "SCRIPT" || element.tagName === "STYLE") {
+      element.remove();
+      return;
+    }
+
+    if (!ALLOWED_CONTENT_TAGS.has(element.tagName)) {
+      element.replaceWith(...Array.from(element.childNodes));
+      return;
+    }
+
+    Array.from(element.attributes).forEach((attribute) => {
+      const name = attribute.name.toLowerCase();
+      if (!ALLOWED_CONTENT_ATTRIBUTES.has(name)) {
+        element.removeAttribute(attribute.name);
+      }
+    });
+
+    if (element.tagName === "A") {
+      const href = element.getAttribute("href") ?? "";
+      if (!/^https?:\/\//i.test(href) && !href.startsWith("mailto:")) {
+        element.removeAttribute("href");
+      }
+      element.setAttribute("target", "_blank");
+      element.setAttribute("rel", "noreferrer");
+    }
+
+    if (element.tagName === "SPAN" && element.attributes.length === 0) {
+      element.replaceWith(...Array.from(element.childNodes));
+    }
+  });
+
+  return template.innerHTML.trim();
+}
+
+type RichTextEditorProps = {
+  label: string;
+  value: string;
+  placeholder: string;
+  onChange: (value: string) => void;
+};
+
+function ToolbarButton({
+  children,
+  label,
+  onClick,
+}: {
+  children: ReactNode;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="grid h-9 w-9 place-items-center rounded-xl border border-[#e3d4c6] bg-white text-[#6f4f40] transition-colors hover:bg-[#f7efe6] hover:text-[#2f2a24]"
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+    >
+      {children}
+    </button>
+  );
+}
+
+function RichTextEditor({ label, value, placeholder, onChange }: RichTextEditorProps) {
+  const editorRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || document.activeElement === editor) return;
+
+    const nextHtml = contentToHtml(value);
+    if (editor.innerHTML !== nextHtml) {
+      editor.innerHTML = nextHtml;
+    }
+  }, [value]);
+
+  const syncValue = () => {
+    const html = editorRef.current?.innerHTML ?? "";
+    onChange(sanitizeRichContent(html));
+  };
+
+  const runCommand = (command: string, commandValue?: string) => {
+    editorRef.current?.focus();
+    document.execCommand(command, false, commandValue);
+    syncValue();
+  };
+
+  const syncAfterBrowserEdit = () => {
+    window.setTimeout(syncValue, 0);
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Enter") return;
+
+    event.preventDefault();
+    editorRef.current?.focus();
+
+    if (event.shiftKey) {
+      document.execCommand("insertLineBreak");
+    } else {
+      document.execCommand("defaultParagraphSeparator", false, "p");
+      document.execCommand("insertParagraph");
+    }
+
+    syncAfterBrowserEdit();
+  };
+
+  const addLink = () => {
+    const url = window.prompt("Paste a link URL");
+    if (!url) return;
+
+    runCommand("createLink", url);
+  };
+
+  return (
+    <div className="grid gap-1 text-sm text-[#7b6d5f]">
+      <span>{label}</span>
+      <div className="overflow-hidden rounded-2xl border border-[#e3d4c6] bg-white">
+        <div className="flex flex-wrap gap-1 border-b border-[#e3d4c6] bg-[#fbf7f1] p-2">
+          <ToolbarButton label="Bold" onClick={() => runCommand("bold")}>
+            <Bold size={16} strokeWidth={2} />
+          </ToolbarButton>
+          <ToolbarButton label="Italic" onClick={() => runCommand("italic")}>
+            <Italic size={16} strokeWidth={2} />
+          </ToolbarButton>
+          <ToolbarButton label="Underline" onClick={() => runCommand("underline")}>
+            <Underline size={16} strokeWidth={2} />
+          </ToolbarButton>
+          <ToolbarButton label="Heading" onClick={() => runCommand("formatBlock", "h2")}>
+            <Heading2 size={16} strokeWidth={2} />
+          </ToolbarButton>
+          <ToolbarButton label="Paragraph" onClick={() => runCommand("formatBlock", "p")}>
+            <Pilcrow size={16} strokeWidth={2} />
+          </ToolbarButton>
+          <ToolbarButton label="Quote" onClick={() => runCommand("formatBlock", "blockquote")}>
+            <Quote size={16} strokeWidth={2} />
+          </ToolbarButton>
+          <ToolbarButton label="Bulleted list" onClick={() => runCommand("insertUnorderedList")}>
+            <List size={16} strokeWidth={2} />
+          </ToolbarButton>
+          <ToolbarButton label="Numbered list" onClick={() => runCommand("insertOrderedList")}>
+            <ListOrdered size={16} strokeWidth={2} />
+          </ToolbarButton>
+          <ToolbarButton label="Link" onClick={addLink}>
+            <LinkIcon size={16} strokeWidth={2} />
+          </ToolbarButton>
+          <ToolbarButton label="Undo" onClick={() => runCommand("undo")}>
+            <Undo2 size={16} strokeWidth={2} />
+          </ToolbarButton>
+          <ToolbarButton label="Redo" onClick={() => runCommand("redo")}>
+            <Redo2 size={16} strokeWidth={2} />
+          </ToolbarButton>
+        </div>
+        <div
+          ref={editorRef}
+          contentEditable
+          className="rich-content min-h-[18rem] px-4 py-3 text-sm leading-7 text-[#2f2a24] outline-none empty:before:text-[#b39f8f] empty:before:content-[attr(data-placeholder)]"
+          data-placeholder={placeholder}
+          onKeyDown={handleKeyDown}
+          onInput={syncValue}
+          onBlur={syncValue}
+          suppressContentEditableWarning
+        />
+      </div>
+    </div>
+  );
+}
 
 function getStorageObjectPath(url: string) {
   if (!url.trim()) {
@@ -198,8 +424,8 @@ export default function BlogEditorPage() {
       !form.slug.trim() ? "page link" : "",
       !form.title_th.trim() ? "Thai title" : "",
       !form.title_en.trim() ? "English title" : "",
-      !form.content_th.trim() ? "Thai content" : "",
-      !form.content_en.trim() ? "English content" : "",
+      isBlankContent(form.content_th) ? "Thai content" : "",
+      isBlankContent(form.content_en) ? "English content" : "",
     ].filter(Boolean);
 
     if (missingFields.length > 0) {
@@ -220,8 +446,8 @@ export default function BlogEditorPage() {
       slug: form.slug.trim(),
       title_th: form.title_th.trim(),
       title_en: form.title_en.trim(),
-      content_th: form.content_th.trim(),
-      content_en: form.content_en.trim(),
+      content_th: sanitizeRichContent(form.content_th),
+      content_en: sanitizeRichContent(form.content_en),
       cover_image_url: coverImageUrl,
       youtube_url: form.youtube_url.trim() || null,
       status: form.status,
@@ -510,25 +736,28 @@ export default function BlogEditorPage() {
                   />
                 </label>
 
-                <label className="grid gap-1 text-sm text-[#7b6d5f]">
-                  <span>{activeLanguage === "th" ? "Content TH" : "Content EN"}</span>
-                  <textarea
-                    rows={16}
-                    value={activeLanguage === "th" ? form.content_th : form.content_en}
-                    onChange={(event) =>
-                      handleFieldChange(
-                        activeLanguage === "th" ? "content_th" : "content_en",
-                        event.target.value,
-                      )
-                    }
-                    placeholder={
-                      activeLanguage === "th"
-                        ? "พิมพ์เนื้อหาภาษาไทย"
-                        : "Write the English content"
-                    }
-                    className="min-h-[18rem] rounded-2xl border border-[#e3d4c6] bg-white px-4 py-3 text-sm leading-7 text-[#2f2a24] outline-none placeholder:text-[#b39f8f]"
-                  />
-                </label>
+                <RichTextEditor
+                  key={activeLanguage}
+                  label={activeLanguage === "th" ? "Content TH" : "Content EN"}
+                  value={activeLanguage === "th" ? form.content_th : form.content_en}
+                  onChange={(value) =>
+                    handleFieldChange(
+                      activeLanguage === "th" ? "content_th" : "content_en",
+                      value,
+                    )
+                  }
+                  placeholder={
+                    activeLanguage === "th"
+                      ? "พิมพ์เนื้อหาภาษาไทย"
+                      : "Write the English content"
+                  }
+                />
+                <input
+                  type="hidden"
+                  value={activeLanguage === "th" ? form.content_th : form.content_en}
+                  required
+                  readOnly
+                />
 
                 <div className="grid gap-2.5 rounded-[24px] border border-[#e3d4c6] bg-white/75 p-4">
                   <label className="grid gap-1 text-sm text-[#7b6d5f]">
@@ -620,14 +849,14 @@ export default function BlogEditorPage() {
                   </div>
 
                   <div className="mt-2.5 grid gap-2.5">
-                    <div className="grid gap-2.5 text-sm leading-7 text-[#2f2a24]">
-                      {(activeLanguage === "th" ? form.content_th : form.content_en)
-                        .split(/\n{2,}/)
-                        .filter(Boolean)
-                        .map((paragraph, index) => (
-                          <p key={index}>{paragraph}</p>
-                        ))}
-                    </div>
+                    <div
+                      className="rich-content grid gap-2.5 text-sm leading-7 text-[#2f2a24]"
+                      dangerouslySetInnerHTML={{
+                        __html: sanitizeRichContent(
+                          activeLanguage === "th" ? form.content_th : form.content_en,
+                        ),
+                      }}
+                    />
 
                     <div className="grid gap-1 text-sm text-[#7b6d5f]">
                       <span>{form.slug || "no-page-link"}</span>

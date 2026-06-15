@@ -1,8 +1,10 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -15,7 +17,9 @@ type AuthContextValue = {
   session: Session | null;
   user: User | null;
   isAdmin: boolean;
+  needsPasswordSetup: boolean;
   signOut: () => Promise<void>;
+  refreshAccess: (options?: { showLoading?: boolean }) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -24,87 +28,135 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [needsPasswordSetup, setNeedsPasswordSetup] = useState(false);
   const [accessError, setAccessError] = useState("");
+  const mountedRef = useRef(true);
 
-  useEffect(() => {
-    let isMounted = true;
-
-    const syncSession = async (
-      nextSession: Session | null,
-      options: { showLoading?: boolean } = {},
-    ) => {
-      if (!isMounted) return;
-
-      if (options.showLoading) {
-        setLoading(true);
+  const setStableSession = (nextSession: Session | null) => {
+    setSession((currentSession) => {
+      if (!currentSession && !nextSession) {
+        return currentSession;
       }
 
+      if (
+        currentSession &&
+        nextSession &&
+        currentSession.user.id === nextSession.user.id &&
+        currentSession.access_token === nextSession.access_token
+      ) {
+        return currentSession;
+      }
+
+      return nextSession;
+    });
+  };
+
+  const signOut = useCallback(async () => {
+    await supabase.auth.signOut();
+  }, []);
+
+  const refreshAccess = useCallback(async (options: { showLoading?: boolean } = {}) => {
+    const clearRejectedSession = async () => {
+      setStableSession(null);
+      setIsAdmin(false);
+      setNeedsPasswordSetup(false);
+
+      try {
+        await supabase.auth.signOut();
+      } catch {
+        // The local guard is already cleared; ignore remote sign-out failures.
+      }
+    };
+
+    if (options.showLoading) {
+      setLoading(true);
+    }
+
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const nextSession = sessionData.session;
+
+      if (!mountedRef.current) return;
+
       setAccessError("");
-      setSession(nextSession);
+      setStableSession(nextSession);
 
       if (!nextSession) {
         setIsAdmin(false);
+        setNeedsPasswordSetup(false);
         setLoading(false);
         return;
       }
 
-      const { data, error } = await supabase
+      const { data: adminData, error } = await supabase
         .from("admin_users")
-        .select("role,is_active,email")
+        .select("is_active,needs_password_setup")
         .eq("user_id", nextSession.user.id)
         .maybeSingle();
 
-      if (!isMounted) return;
+      if (!mountedRef.current) return;
 
       if (error) {
-        setIsAdmin(false);
-        setSession(null);
         setAccessError(error.message);
+        await clearRejectedSession();
         setLoading(false);
         return;
       }
 
-      if (!data) {
-        setIsAdmin(false);
-        setSession(null);
-        setAccessError("You do not have admin access.");
-        setLoading(false);
-        return;
-      }
-
-      if (!data.is_active) {
-        setIsAdmin(false);
-        setSession(null);
-        setAccessError("Your admin access has been disabled.");
+      if (!adminData || !adminData.is_active) {
+        setAccessError(
+          adminData ? "Your admin access has been disabled." : "You do not have admin access.",
+        );
+        await clearRejectedSession();
         setLoading(false);
         return;
       }
 
       setIsAdmin(true);
-      setLoading(false);
-    };
+      setNeedsPasswordSetup(Boolean(adminData.needs_password_setup));
+    } catch (refreshError) {
+      if (!mountedRef.current) return;
 
-    supabase.auth.getSession().then(({ data }) => {
-      void syncSession(data.session, { showLoading: true });
-    });
+      setAccessError(
+        refreshError instanceof Error
+          ? `Could not verify admin access: ${refreshError.message}`
+          : "Could not verify admin access. Check your connection and try again.",
+      );
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void refreshAccess({ showLoading: true });
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(
-      (_event, nextSession) => {
-        void syncSession(nextSession);
-      },
-    );
+    } = supabase.auth.onAuthStateChange(() => {
+      void refreshAccess();
+    });
+
+    const refreshVisibleAccess = () => {
+      if (document.visibilityState === "visible") {
+        void refreshAccess();
+      }
+    };
+
+    window.addEventListener("focus", refreshVisibleAccess);
+    document.addEventListener("visibilitychange", refreshVisibleAccess);
+    const accessCheckInterval = window.setInterval(refreshVisibleAccess, 30000);
 
     return () => {
-      isMounted = false;
+      mountedRef.current = false;
+      window.removeEventListener("focus", refreshVisibleAccess);
+      document.removeEventListener("visibilitychange", refreshVisibleAccess);
+      window.clearInterval(accessCheckInterval);
       subscription.unsubscribe();
     };
-  }, []);
-
-  const signOut = async () => {
-    await supabase.auth.signOut();
-  };
+  }, [refreshAccess]);
 
   const value = useMemo(
     () => ({
@@ -113,9 +165,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       session,
       user: session?.user ?? null,
       isAdmin,
+      needsPasswordSetup,
       signOut,
+      refreshAccess,
     }),
-    [accessError, isAdmin, loading, session],
+    [accessError, isAdmin, loading, needsPasswordSetup, session],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

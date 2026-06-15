@@ -76,6 +76,55 @@ export function formatDate(value: string | null) {
   }).format(new Date(value));
 }
 
+export function containsHtml(value: string) {
+  return /<\/?[a-z][\s\S]*>/i.test(value);
+}
+
+export function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+export function contentToHtml(value: string) {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return "";
+  }
+
+  if (containsHtml(trimmed)) {
+    return trimmed;
+  }
+
+  return trimmed
+    .split(/\n{2,}/)
+    .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, "<br>")}</p>`)
+    .join("");
+}
+
+export function stripHtml(value: string) {
+  return value
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<\/(p|div|h[1-6]|li|blockquote)>/gi, " ")
+    .replace(/<br\s*\/?>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'");
+}
+
+export function isBlankContent(value: string) {
+  return stripHtml(value).replace(/\s+/g, "").length === 0;
+}
+
 export function statusLabel(status: BlogStatus) {
   switch (status) {
     case "published":
@@ -99,7 +148,7 @@ export function statusClass(status: BlogStatus) {
 }
 
 function shortenText(value: string, maxLength = 140) {
-  const compact = value.replace(/\s+/g, " ").trim();
+  const compact = stripHtml(value).replace(/\s+/g, " ").trim();
 
   if (!compact) {
     return "";
