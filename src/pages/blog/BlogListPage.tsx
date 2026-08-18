@@ -26,6 +26,7 @@ import {
 import { LoadingBlock } from "../../components/ui/loading";
 
 const POSTS_PER_PAGE = 10;
+const SEARCH_DEBOUNCE_MS = 350;
 type BlogSort = "newest" | "oldest";
 type BlogStats = {
   all: number;
@@ -70,16 +71,17 @@ export default function BlogListPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | BlogStatus>("all");
   const [sortBy, setSortBy] = useState<BlogSort>("newest");
   const [currentPage, setCurrentPage] = useState(1);
 
-  const loadPosts = async () => {
+  const loadPosts = async (searchTerm = debouncedSearch, page = currentPage) => {
     setLoading(true);
     setError("");
 
-    const term = search.trim();
-    const pageStartIndex = (currentPage - 1) * POSTS_PER_PAGE;
+    const term = searchTerm.trim();
+    const pageStartIndex = (page - 1) * POSTS_PER_PAGE;
     let query = supabase
       .from("blog_posts")
       .select("*", { count: "exact" });
@@ -134,11 +136,20 @@ export default function BlogListPage() {
 
   useEffect(() => {
     void loadPosts();
-  }, [currentPage, search, sortBy, statusFilter]);
+  }, [currentPage, debouncedSearch, sortBy, statusFilter]);
 
   useEffect(() => {
     void loadStats();
   }, []);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setCurrentPage(1);
+      setDebouncedSearch(search);
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => window.clearTimeout(timeout);
+  }, [search]);
 
   const totalPages = Math.max(1, Math.ceil(totalPosts / POSTS_PER_PAGE));
   const firstVisibleItem = totalPosts === 0 ? 0 : (currentPage - 1) * POSTS_PER_PAGE + 1;
@@ -197,10 +208,7 @@ export default function BlogListPage() {
                 <input
                   type="search"
                   value={search}
-                  onChange={(event) => {
-                    setCurrentPage(1);
-                    setSearch(event.target.value);
-                  }}
+                  onChange={(event) => setSearch(event.target.value)}
                   placeholder="Search by title or page link"
                   className="w-full bg-transparent text-sm text-[#2f2a24] outline-none placeholder:text-[#b39f8f]"
                 />
@@ -241,8 +249,10 @@ export default function BlogListPage() {
               type="button"
               className={adminSecondaryButtonClass}
               onClick={() => {
+                setCurrentPage(1);
+                setDebouncedSearch(search);
                 void loadStats();
-                void loadPosts();
+                void loadPosts(search, 1);
               }}
             >
               <RefreshCw size={16} strokeWidth={2} />
