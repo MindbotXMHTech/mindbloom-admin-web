@@ -1,6 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { PencilLine, Plus, RefreshCw, Search } from "lucide-react";
+import {
+  ArrowDownUp,
+  ChevronLeft,
+  ChevronRight,
+  PencilLine,
+  Plus,
+  RefreshCw,
+  Search,
+} from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import {
   adminPrimaryButtonClass,
@@ -17,59 +25,146 @@ import {
 } from "./blogShared";
 import { LoadingBlock } from "../../components/ui/loading";
 
+const POSTS_PER_PAGE = 10;
+const SEARCH_DEBOUNCE_MS = 350;
+type BlogSort = "newest" | "oldest";
+type BlogStats = {
+  all: number;
+  published: number;
+  draft: number;
+};
+
+function getPaginationItems(currentPage: number, totalPages: number) {
+  const pages = new Set([1, totalPages]);
+
+  for (let page = currentPage - 1; page <= currentPage + 1; page += 1) {
+    if (page > 1 && page < totalPages) {
+      pages.add(page);
+    }
+  }
+
+  const sortedPages = [...pages].sort((a, b) => a - b);
+  return sortedPages.flatMap((page, index) => {
+    const previousPage = sortedPages[index - 1];
+
+    if (previousPage && page - previousPage > 1) {
+      return [`ellipsis-${previousPage}-${page}`, page] as const;
+    }
+
+    return [page] as const;
+  });
+}
+
+function escapeSearchTerm(value: string) {
+  return value.replace(/[%_]/g, (match) => `\\${match}`).replace(/[(),]/g, " ");
+}
+
 export default function BlogListPage() {
   const navigate = useNavigate();
   const [posts, setPosts] = useState<BlogPost[]>([]);
+  const [totalPosts, setTotalPosts] = useState(0);
+  const [stats, setStats] = useState<BlogStats>({
+    all: 0,
+    published: 0,
+    draft: 0,
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | BlogStatus>("all");
+  const [sortBy, setSortBy] = useState<BlogSort>("newest");
+  const [currentPage, setCurrentPage] = useState(1);
 
-  const loadPosts = async () => {
+  const loadPosts = async (searchTerm = debouncedSearch, page = currentPage) => {
     setLoading(true);
     setError("");
 
-    const { data, error: queryError } = await supabase
+    const term = searchTerm.trim();
+    const pageStartIndex = (page - 1) * POSTS_PER_PAGE;
+    let query = supabase
       .from("blog_posts")
-      .select("*")
-      .order("sort_order", { ascending: true })
-      .order("created_at", { ascending: false });
+      .select("*", { count: "exact" });
+
+    if (term) {
+      const searchTerm = escapeSearchTerm(term);
+      query = query.or(
+        `title_th.ilike.%${searchTerm}%,title_en.ilike.%${searchTerm}%,slug.ilike.%${searchTerm}%`,
+      );
+    }
+
+    if (statusFilter !== "all") {
+      query = query.eq("status", statusFilter);
+    }
+
+    const { data, error: queryError, count } = await query
+      .order("created_at", { ascending: sortBy === "oldest" })
+      .range(pageStartIndex, pageStartIndex + POSTS_PER_PAGE - 1);
 
     if (queryError) {
       setError(queryError.message);
       setPosts([]);
+      setTotalPosts(0);
       setLoading(false);
       return;
     }
 
     setPosts((data ?? []) as BlogPost[]);
+    setTotalPosts(count ?? 0);
     setLoading(false);
+  };
+
+  const loadStats = async () => {
+    const [allResult, publishedResult, draftResult] = await Promise.all([
+      supabase.from("blog_posts").select("id", { count: "exact", head: true }),
+      supabase
+        .from("blog_posts")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "published"),
+      supabase
+        .from("blog_posts")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "draft"),
+    ]);
+
+    setStats({
+      all: allResult.count ?? 0,
+      published: publishedResult.count ?? 0,
+      draft: draftResult.count ?? 0,
+    });
   };
 
   useEffect(() => {
     void loadPosts();
+  }, [currentPage, debouncedSearch, sortBy, statusFilter]);
+
+  useEffect(() => {
+    void loadStats();
   }, []);
 
-  const visiblePosts = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return posts.filter((post) => {
-      const matchesSearch =
-        term.length === 0 ||
-        [post.title_th, post.title_en, post.slug]
-          .join(" ")
-          .toLowerCase()
-          .includes(term);
-      const matchesStatus =
-        statusFilter === "all" ? true : post.status === statusFilter;
-      return matchesSearch && matchesStatus;
-    });
-  }, [posts, search, statusFilter]);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setCurrentPage(1);
+      setDebouncedSearch(search);
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => window.clearTimeout(timeout);
+  }, [search]);
+
+  const totalPages = Math.max(1, Math.ceil(totalPosts / POSTS_PER_PAGE));
+  const firstVisibleItem = totalPosts === 0 ? 0 : (currentPage - 1) * POSTS_PER_PAGE + 1;
+  const lastVisibleItem = Math.min(currentPage * POSTS_PER_PAGE, totalPosts);
+  const paginationItems = getPaginationItems(currentPage, totalPages);
+
+  useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
 
   const getDisplayTitle = (post: BlogPost) => post.title_th || post.title_en;
 
   return (
-    <section className="grid gap-4">
-      <section className="rounded-[28px] border border-[#e3d4c6] bg-[rgba(255,253,249,0.9)] px-6 py-6 shadow-[0_14px_36px_rgba(65,43,27,0.06)]">
+    <section className="grid content-start gap-4">
+      <section className="self-start rounded-[28px] border border-[#e3d4c6] bg-[rgba(255,253,249,0.9)] px-6 py-6 shadow-[0_14px_36px_rgba(65,43,27,0.06)]">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="grid gap-2">
             <div className="text-xs font-medium tracking-[0.18em] text-[#7b6d5f] uppercase">
@@ -85,12 +180,9 @@ export default function BlogListPage() {
 
           <div className="grid grid-cols-3 gap-3">
             {[
-              { label: "All", value: posts.length },
-              {
-                label: "Published",
-                value: posts.filter((post) => post.status === "published").length,
-              },
-              { label: "Draft", value: posts.filter((post) => post.status === "draft").length },
+              { label: "All", value: stats.all },
+              { label: "Published", value: stats.published },
+              { label: "Draft", value: stats.draft },
             ].map((stat) => (
               <div
                 key={stat.label}
@@ -106,7 +198,7 @@ export default function BlogListPage() {
         </div>
       </section>
 
-      <section className="rounded-[24px] border border-[#e3d4c6] bg-[rgba(255,253,249,0.88)] p-4 shadow-[0_14px_36px_rgba(65,43,27,0.06)]">
+      <section className="self-start rounded-[24px] border border-[#e3d4c6] bg-[rgba(255,253,249,0.88)] p-4 shadow-[0_14px_36px_rgba(65,43,27,0.06)]">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="grid gap-3 md:grid-cols-[minmax(240px,1fr)_160px]">
             <label className="grid gap-2 text-sm text-[#7b6d5f]">
@@ -127,9 +219,10 @@ export default function BlogListPage() {
               <span>Status</span>
               <select
                 value={statusFilter}
-                onChange={(event) =>
-                  setStatusFilter(event.target.value as "all" | BlogStatus)
-                }
+                onChange={(event) => {
+                  setCurrentPage(1);
+                  setStatusFilter(event.target.value as "all" | BlogStatus);
+                }}
                 className="h-11 rounded-2xl border border-[#e3d4c6] bg-white px-3 text-sm text-[#2f2a24] outline-none"
               >
                 <option value="all">All</option>
@@ -144,7 +237,23 @@ export default function BlogListPage() {
             <button
               type="button"
               className={adminSecondaryButtonClass}
-              onClick={loadPosts}
+              onClick={() => {
+                setCurrentPage(1);
+                setSortBy((currentSort) => (currentSort === "newest" ? "oldest" : "newest"));
+              }}
+            >
+              <ArrowDownUp size={16} strokeWidth={2} />
+              {sortBy === "newest" ? "Newest first" : "Oldest first"}
+            </button>
+            <button
+              type="button"
+              className={adminSecondaryButtonClass}
+              onClick={() => {
+                setCurrentPage(1);
+                setDebouncedSearch(search);
+                void loadStats();
+                void loadPosts(search, 1);
+              }}
             >
               <RefreshCw size={16} strokeWidth={2} />
               Refresh
@@ -167,14 +276,14 @@ export default function BlogListPage() {
         </p>
       ) : null}
 
-      <section className="rounded-[24px] border border-[#e3d4c6] bg-[rgba(255,253,249,0.88)] p-5 shadow-[0_14px_36px_rgba(65,43,27,0.06)]">
+      <section className="self-start rounded-[24px] border border-[#e3d4c6] bg-[rgba(255,253,249,0.88)] p-5 shadow-[0_14px_36px_rgba(65,43,27,0.06)]">
         <div className="mb-4 flex items-center justify-between gap-4">
           <div>
             <div className="text-xs font-medium tracking-[0.18em] text-[#7b6d5f] uppercase">
               Article list
             </div>
             <h2 className="mt-1 text-2xl font-semibold tracking-tight text-[#2f2a24]">
-              {visiblePosts.length} items
+              {totalPosts} items
             </h2>
           </div>
         </div>
@@ -205,7 +314,7 @@ export default function BlogListPage() {
               </article>
             ))}
           </div>
-        ) : visiblePosts.length === 0 ? (
+        ) : totalPosts === 0 ? (
           <div className="rounded-2xl border border-dashed border-[#e3d4c6] bg-white/70 p-5">
             <h3 className="text-lg font-semibold text-[#2f2a24]">No articles yet</h3>
             <p className="mt-1 text-sm leading-6 text-[#7b6d5f]">
@@ -214,7 +323,7 @@ export default function BlogListPage() {
           </div>
         ) : (
           <div className="grid gap-3">
-            {visiblePosts.map((post) => (
+            {posts.map((post) => (
               <article
                 key={post.id}
                 className="rounded-[20px] border border-[#e3d4c6] bg-white/80 p-4 shadow-[0_10px_24px_rgba(65,43,27,0.04)]"
@@ -254,6 +363,69 @@ export default function BlogListPage() {
             ))}
           </div>
         )}
+
+        {!loading && totalPosts > POSTS_PER_PAGE ? (
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-[#e3d4c6] pt-4">
+            <p className="text-sm text-[#7b6d5f]">
+              Showing {firstVisibleItem}-{lastVisibleItem} of {totalPosts}
+            </p>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#e3d4c6] bg-white text-[#7b6d5f] transition-colors hover:bg-[#f7efe6] hover:text-[#2f2a24] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-white disabled:hover:text-[#7b6d5f]"
+                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                disabled={currentPage === 1}
+                aria-label="Previous page"
+                title="Previous page"
+              >
+                <ChevronLeft size={16} strokeWidth={2} aria-hidden="true" />
+              </button>
+              {paginationItems.map((item) => {
+                if (typeof item === "string") {
+                  return (
+                    <span
+                      key={item}
+                      className="inline-flex h-10 min-w-6 items-center justify-center text-sm font-medium text-[#7b6d5f]"
+                      aria-hidden="true"
+                    >
+                      ...
+                    </span>
+                  );
+                }
+
+                const pageNumber = item;
+                const isCurrentPage = pageNumber === currentPage;
+
+                return (
+                  <button
+                    key={pageNumber}
+                    type="button"
+                    className={`inline-flex h-10 min-w-10 items-center justify-center rounded-full border px-3 text-sm font-medium transition-colors ${
+                      isCurrentPage
+                        ? "border-[#6f4f40] bg-[#6f4f40] text-white"
+                        : "border-[#e3d4c6] bg-white text-[#7b6d5f] hover:bg-[#f7efe6] hover:text-[#2f2a24]"
+                    }`}
+                    onClick={() => setCurrentPage(pageNumber)}
+                    aria-current={isCurrentPage ? "page" : undefined}
+                    aria-label={`Go to page ${pageNumber}`}
+                  >
+                    {pageNumber}
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#e3d4c6] bg-white text-[#7b6d5f] transition-colors hover:bg-[#f7efe6] hover:text-[#2f2a24] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-white disabled:hover:text-[#7b6d5f]"
+                onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                disabled={currentPage === totalPages}
+                aria-label="Next page"
+                title="Next page"
+              >
+                <ChevronRight size={16} strokeWidth={2} aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+        ) : null}
       </section>
     </section>
   );
