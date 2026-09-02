@@ -3,16 +3,29 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentProps,
+  type ChangeEvent,
   type FormEvent,
-  type KeyboardEvent,
   type ReactNode,
 } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { EditorContent, Extension, useEditor, type CommandProps } from "@tiptap/react";
+import { BubbleMenu } from "@tiptap/react/menus";
+import ImageExtension from "@tiptap/extension-image";
+import LinkExtension from "@tiptap/extension-link";
+import PlaceholderExtension from "@tiptap/extension-placeholder";
+import StarterKit from "@tiptap/starter-kit";
+import UnderlineExtension from "@tiptap/extension-underline";
+import { NodeSelection, Plugin, type Transaction } from "@tiptap/pm/state";
 import {
+  Anchor,
   ArrowLeft,
   Bold,
   Heading2,
+  Heading3,
   ImageUp,
+  IndentDecrease,
+  IndentIncrease,
   Italic,
   LinkIcon,
   List,
@@ -53,6 +66,7 @@ const ALLOWED_CONTENT_TAGS = new Set([
   "H2",
   "H3",
   "I",
+  "IMG",
   "LI",
   "OL",
   "P",
@@ -62,7 +76,73 @@ const ALLOWED_CONTENT_TAGS = new Set([
   "UL",
 ]);
 
-const ALLOWED_CONTENT_ATTRIBUTES = new Set(["href", "target", "rel"]);
+const IMAGE_WIDTH_OPTIONS = [320, 480, 640, 800] as const;
+const IMAGE_WIDTH_CHOICES = ["full", ...IMAGE_WIDTH_OPTIONS.map(String)] as const;
+const MAX_INDENT_LEVEL = 4;
+const INDENTABLE_BLOCK_SELECTOR = "p, h2, h3, blockquote";
+const IMAGE_BUBBLE_MENU_OPTIONS: NonNullable<ComponentProps<typeof BubbleMenu>["options"]> = {
+  placement: "top",
+  strategy: "fixed",
+};
+
+function normalizeHeadingId(value: string) {
+  return slugify(value).slice(0, 80);
+}
+
+function isValidHeadingId(value: string) {
+  return /^[a-z0-9ก-๙][a-z0-9ก-๙-]{0,79}$/.test(value);
+}
+
+function getUniqueHeadingId(baseId: string, usedIds: Set<string>) {
+  const fallbackId = baseId || "section";
+  let candidate = fallbackId;
+  let index = 2;
+
+  while (usedIds.has(candidate)) {
+    candidate = `${fallbackId}-${index}`;
+    index += 1;
+  }
+
+  usedIds.add(candidate);
+  return candidate;
+}
+
+function isAllowedImageSrc(value: string) {
+  return /^https?:\/\//i.test(value);
+}
+
+function shouldShowImageBubbleMenu({
+  editor,
+  state,
+}: Parameters<NonNullable<ComponentProps<typeof BubbleMenu>["shouldShow"]>>[0]) {
+  return (
+    editor.isEditable &&
+    state.selection instanceof NodeSelection &&
+    state.selection.node.type.name === "image"
+  );
+}
+
+function sanitizeImageWidth(value: number | string | null) {
+  if (!value) return null;
+
+  const width = typeof value === "number" ? value : Number.parseInt(value, 10);
+  if (!IMAGE_WIDTH_OPTIONS.some((option) => option === width)) {
+    return null;
+  }
+
+  return String(width);
+}
+
+function sanitizeIndentLevel(value: string | null) {
+  if (!value) return null;
+
+  const level = Number.parseInt(value, 10);
+  if (!Number.isInteger(level) || level < 1 || level > MAX_INDENT_LEVEL) {
+    return null;
+  }
+
+  return String(level);
+}
 
 function sanitizeRichContent(value: string) {
   if (typeof window === "undefined") {
@@ -71,6 +151,7 @@ function sanitizeRichContent(value: string) {
 
   const template = document.createElement("template");
   template.innerHTML = contentToHtml(value);
+  const originalHeadingIds = new Map<Element, string>();
 
   template.content.querySelectorAll("*").forEach((element) => {
     if (element.tagName === "SCRIPT" || element.tagName === "STYLE") {
@@ -83,25 +164,76 @@ function sanitizeRichContent(value: string) {
       return;
     }
 
+    const originalAttributes = new Map(
+      Array.from(element.attributes).map((attribute) => [
+        attribute.name.toLowerCase(),
+        attribute.value,
+      ]),
+    );
+
     Array.from(element.attributes).forEach((attribute) => {
-      const name = attribute.name.toLowerCase();
-      if (!ALLOWED_CONTENT_ATTRIBUTES.has(name)) {
-        element.removeAttribute(attribute.name);
-      }
+      element.removeAttribute(attribute.name);
     });
 
-    if (element.tagName === "A") {
-      const href = element.getAttribute("href") ?? "";
-      if (!/^https?:\/\//i.test(href) && !href.startsWith("mailto:")) {
-        element.removeAttribute("href");
+    if (element.tagName === "H2" || element.tagName === "H3") {
+      originalHeadingIds.set(element, originalAttributes.get("id") ?? "");
+    }
+
+    if (element.matches(INDENTABLE_BLOCK_SELECTOR)) {
+      const indentLevel = sanitizeIndentLevel(originalAttributes.get("data-indent") ?? null);
+      if (indentLevel) {
+        element.setAttribute("data-indent", indentLevel);
       }
-      element.setAttribute("target", "_blank");
-      element.setAttribute("rel", "noreferrer");
+    }
+
+    if (element.tagName === "A") {
+      const href = originalAttributes.get("href") ?? "";
+      const isHashLink = /^#[a-z0-9ก-๙][a-z0-9ก-๙-]{0,79}$/.test(href);
+      const isExternalLink = /^https?:\/\//i.test(href);
+      const isMailLink = href.startsWith("mailto:");
+
+      if (isHashLink) {
+        element.setAttribute("href", href);
+      } else if (isExternalLink || isMailLink) {
+        element.setAttribute("href", href);
+        element.setAttribute("target", "_blank");
+        element.setAttribute("rel", "noreferrer");
+      }
+    }
+
+    if (element.tagName === "IMG") {
+      const originalSrc = originalAttributes.get("src") ?? "";
+      const originalAlt = originalAttributes.get("alt") ?? "";
+      const width = sanitizeImageWidth(originalAttributes.get("width") ?? null);
+
+      if (!isAllowedImageSrc(originalSrc)) {
+        element.remove();
+        return;
+      }
+
+      element.setAttribute("src", originalSrc);
+      element.setAttribute("alt", originalAlt.slice(0, 160));
+
+      if (width) {
+        element.setAttribute("width", width);
+      }
     }
 
     if (element.tagName === "SPAN" && element.attributes.length === 0) {
       element.replaceWith(...Array.from(element.childNodes));
     }
+  });
+
+  const usedHeadingIds = new Set<string>();
+  template.content.querySelectorAll("h2, h3").forEach((heading) => {
+    const existingId = originalHeadingIds.get(heading) ?? "";
+    const normalizedExistingId = normalizeHeadingId(existingId);
+    const baseId =
+      normalizedExistingId && isValidHeadingId(normalizedExistingId)
+        ? normalizedExistingId
+        : normalizeHeadingId(heading.textContent ?? "") || "section";
+
+    heading.setAttribute("id", getUniqueHeadingId(baseId, usedHeadingIds));
   });
 
   return template.innerHTML.trim();
@@ -111,24 +243,235 @@ type RichTextEditorProps = {
   label: string;
   value: string;
   placeholder: string;
+  uploadPathPrefix: string;
+  onUploadError: (message: string) => void;
   onChange: (value: string) => void;
 };
+
+declare module "@tiptap/core" {
+  interface Commands<ReturnType> {
+    blogBlockIndent: {
+      increaseBlockIndent: () => ReturnType;
+      decreaseBlockIndent: () => ReturnType;
+    };
+    blogHeadingIds: {
+      ensureHeadingIds: () => ReturnType;
+    };
+  }
+}
+
+const BlogEditorAttributes = Extension.create({
+  name: "blogEditorAttributes",
+
+  addGlobalAttributes() {
+    return [
+      {
+        types: ["heading"],
+        attributes: {
+          id: {
+            default: null,
+            parseHTML: (element: HTMLElement) => element.getAttribute("id"),
+            renderHTML: (attributes: Record<string, unknown>) => {
+              const id = typeof attributes.id === "string" ? normalizeHeadingId(attributes.id) : "";
+              return id && isValidHeadingId(id) ? { id } : {};
+            },
+          },
+        },
+      },
+      {
+        types: ["paragraph", "heading", "blockquote"],
+        attributes: {
+          indent: {
+            default: null,
+            parseHTML: (element: HTMLElement) =>
+              sanitizeIndentLevel(element.getAttribute("data-indent")),
+            renderHTML: (attributes: Record<string, unknown>) => {
+              const indent = sanitizeIndentLevel(
+                typeof attributes.indent === "string" ? attributes.indent : null,
+              );
+              return indent ? { "data-indent": indent } : {};
+            },
+          },
+        },
+      },
+    ];
+  },
+});
+
+function addHeadingIdUpdates({ state, tr }: Pick<CommandProps, "state" | "tr">) {
+  const usedIds = new Set<string>();
+  const updates: Array<{ pos: number; id: string }> = [];
+
+  state.doc.descendants((node, pos) => {
+    if (node.type.name !== "heading" || ![2, 3].includes(node.attrs.level)) {
+      return;
+    }
+
+    const existingId = typeof node.attrs.id === "string" ? normalizeHeadingId(node.attrs.id) : "";
+    const textId = normalizeHeadingId(node.textContent) || "section";
+    const preferredId = existingId && isValidHeadingId(existingId) ? existingId : textId;
+    const nextId = getUniqueHeadingId(preferredId, usedIds);
+
+    if (node.attrs.id !== nextId) {
+      updates.push({ pos, id: nextId });
+    }
+  });
+
+  updates.forEach(({ pos, id }) => {
+    const node = tr.doc.nodeAt(pos);
+    if (!node) return;
+
+    tr.setNodeMarkup(pos, undefined, {
+      ...node.attrs,
+      id,
+    });
+  });
+}
+
+const BlogHeadingIds = Extension.create({
+  name: "blogHeadingIds",
+
+  addCommands() {
+    return {
+      ensureHeadingIds:
+        () =>
+        ({ state, tr, dispatch }: CommandProps) => {
+          addHeadingIdUpdates({ state, tr });
+
+          if (tr.docChanged) {
+            dispatch?.(tr);
+            return true;
+          }
+
+          return false;
+        },
+    };
+  },
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        appendTransaction(transactions: readonly Transaction[], _oldState, newState) {
+          if (!transactions.some((transaction) => transaction.docChanged)) {
+            return null;
+          }
+
+          const transaction = newState.tr;
+          addHeadingIdUpdates({ state: newState, tr: transaction });
+
+          return transaction.docChanged ? transaction : null;
+        },
+      }),
+    ];
+  },
+});
+
+const BlogBlockIndent = Extension.create({
+  name: "blogBlockIndent",
+
+  addCommands() {
+    const updateIndent =
+      (direction: 1 | -1) =>
+      ({ state, tr, dispatch }: CommandProps) => {
+        const positions = new Map<number, { attrs: Record<string, unknown> }>();
+        const allowedTypes = new Set(["paragraph", "heading", "blockquote"]);
+
+        state.selection.ranges.forEach((range) => {
+          state.doc.nodesBetween(range.$from.pos, range.$to.pos, (node, pos) => {
+            if (!allowedTypes.has(node.type.name)) {
+              return true;
+            }
+
+            positions.set(pos, { attrs: node.attrs });
+            return node.type.name !== "blockquote";
+          });
+        });
+
+        if (positions.size === 0) {
+          for (let depth = state.selection.$from.depth; depth > 0; depth -= 1) {
+            const node = state.selection.$from.node(depth);
+            if (!allowedTypes.has(node.type.name)) continue;
+
+            positions.set(state.selection.$from.before(depth), { attrs: node.attrs });
+            break;
+          }
+        }
+
+        if (positions.size === 0) {
+          return false;
+        }
+
+        positions.forEach(({ attrs }, pos) => {
+          const currentLevel = Number.parseInt(String(attrs.indent ?? "0"), 10) || 0;
+          const nextLevel = Math.max(0, Math.min(MAX_INDENT_LEVEL, currentLevel + direction));
+          const node = tr.doc.nodeAt(pos);
+          if (!node) return;
+
+          tr.setNodeMarkup(pos, undefined, {
+            ...node.attrs,
+            indent: nextLevel === 0 ? null : String(nextLevel),
+          });
+        });
+
+        if (tr.docChanged) {
+          dispatch?.(tr);
+          return true;
+        }
+
+        return false;
+      };
+
+    return {
+      increaseBlockIndent: () => updateIndent(1),
+      decreaseBlockIndent: () => updateIndent(-1),
+    };
+  },
+});
+
+const BlogImage = ImageExtension.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      width: {
+        default: null,
+        parseHTML: (element: HTMLElement) =>
+          sanitizeImageWidth(element.getAttribute("width")),
+        renderHTML: (attributes: Record<string, unknown>) => {
+          const width = sanitizeImageWidth(
+            typeof attributes.width === "string" ? attributes.width : null,
+          );
+          return width ? { width } : {};
+        },
+      },
+    };
+  },
+});
 
 function ToolbarButton({
   children,
   label,
   onClick,
+  active = false,
+  disabled = false,
 }: {
   children: ReactNode;
   label: string;
   onClick: () => void;
+  active?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
-      className="grid h-9 w-9 place-items-center rounded-xl border border-[#e3d4c6] bg-white text-[#6f4f40] transition-colors hover:bg-[#f7efe6] hover:text-[#2f2a24]"
+      className={[
+        "grid h-9 w-9 place-items-center rounded-xl border transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+        active
+          ? "border-[#6f4f40] bg-[#f7efe6] text-[#2f2a24]"
+          : "border-[#e3d4c6] bg-white text-[#6f4f40] hover:bg-[#f7efe6] hover:text-[#2f2a24]",
+      ].join(" ")}
       onMouseDown={(event) => event.preventDefault()}
       onClick={onClick}
+      disabled={disabled}
       aria-label={label}
       title={label}
     >
@@ -137,106 +480,437 @@ function ToolbarButton({
   );
 }
 
-function RichTextEditor({ label, value, placeholder, onChange }: RichTextEditorProps) {
-  const editorRef = useRef<HTMLDivElement | null>(null);
+function RichTextEditor({
+  label,
+  value,
+  placeholder,
+  uploadPathPrefix,
+  onUploadError,
+  onChange,
+}: RichTextEditorProps) {
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const initialContentRef = useRef(contentToHtml(value));
+  const lastEmittedHtmlRef = useRef("");
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const normalizedValue = contentToHtml(value);
+  const editorExtensions = useMemo(
+    () => [
+      StarterKit.configure({
+        code: false,
+        codeBlock: false,
+        heading: {
+          levels: [2, 3],
+        },
+        horizontalRule: false,
+        link: false,
+        strike: false,
+        underline: false,
+      }),
+      UnderlineExtension,
+      LinkExtension.configure({
+        autolink: false,
+        linkOnPaste: true,
+        openOnClick: false,
+        HTMLAttributes: {},
+        isAllowedUri: (url) =>
+          /^#[a-z0-9ก-๙][a-z0-9ก-๙-]{0,79}$/.test(url) ||
+          /^https?:\/\//i.test(url) ||
+          url.startsWith("mailto:"),
+      }),
+      BlogImage.configure({
+        allowBase64: false,
+      }),
+      BlogEditorAttributes,
+      BlogHeadingIds,
+      BlogBlockIndent,
+      PlaceholderExtension.configure({
+        placeholder,
+      }),
+    ],
+    [placeholder],
+  );
+  const editorProps = useMemo(
+    () => ({
+      attributes: {
+        class:
+          "rich-content min-h-[18rem] px-4 py-3 text-sm leading-7 text-[#2f2a24] outline-none",
+        "data-placeholder": placeholder,
+      },
+    }),
+    [placeholder],
+  );
+  const editor = useEditor({
+    extensions: editorExtensions,
+    content: initialContentRef.current,
+    immediatelyRender: false,
+    shouldRerenderOnTransaction: true,
+    editorProps,
+    onUpdate: ({ editor: updateEditor }) => {
+      const html = updateEditor.isEmpty ? "" : updateEditor.getHTML();
+      lastEmittedHtmlRef.current = html;
+      onChange(html);
+    },
+  });
 
   useEffect(() => {
-    const editor = editorRef.current;
-    if (!editor || document.activeElement === editor) return;
+    if (!editor) return;
+    if (normalizedValue === lastEmittedHtmlRef.current) return;
+    if (editor.getHTML() === normalizedValue) return;
 
-    const nextHtml = contentToHtml(value);
-    if (editor.innerHTML !== nextHtml) {
-      editor.innerHTML = nextHtml;
-    }
-  }, [value]);
+    editor.commands.setContent(normalizedValue, {
+      emitUpdate: false,
+    });
+    editor.commands.ensureHeadingIds();
+  }, [editor, normalizedValue]);
 
-  const syncValue = () => {
-    const html = editorRef.current?.innerHTML ?? "";
-    onChange(sanitizeRichContent(html));
-  };
+  useEffect(() => {
+    editor?.commands.ensureHeadingIds();
+  }, [editor]);
 
-  const runCommand = (command: string, commandValue?: string) => {
-    editorRef.current?.focus();
-    document.execCommand(command, false, commandValue);
-    syncValue();
-  };
+  const setExternalLink = () => {
+    if (!editor) return;
 
-  const syncAfterBrowserEdit = () => {
-    window.setTimeout(syncValue, 0);
-  };
-
-  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== "Enter") return;
-
-    event.preventDefault();
-    editorRef.current?.focus();
-
-    if (event.shiftKey) {
-      document.execCommand("insertLineBreak");
-    } else {
-      document.execCommand("defaultParagraphSeparator", false, "p");
-      document.execCommand("insertParagraph");
-    }
-
-    syncAfterBrowserEdit();
-  };
-
-  const addLink = () => {
-    const url = window.prompt("Paste a link URL");
+    const previousHref = editor.getAttributes("link").href;
+    const url = window.prompt(
+      "Paste a link URL",
+      typeof previousHref === "string" ? previousHref : "",
+    );
     if (!url) return;
 
-    runCommand("createLink", url);
+    if (!/^https?:\/\//i.test(url) && !url.startsWith("mailto:")) {
+      return;
+    }
+
+    editor
+      .chain()
+      .focus()
+      .extendMarkRange("link")
+      .setLink({
+        href: url,
+        target: "_blank",
+        rel: "noreferrer",
+      })
+      .run();
   };
+
+  const addJumpLink = () => {
+    if (!editor) return;
+
+    editor.commands.ensureHeadingIds();
+
+    const headings: Array<{ id: string; label: string; level: number }> = [];
+    editor.state.doc.descendants((node) => {
+      if (node.type.name !== "heading" || ![2, 3].includes(node.attrs.level)) {
+        return;
+      }
+
+      const id = typeof node.attrs.id === "string" ? node.attrs.id : "";
+      if (!id) return;
+
+      headings.push({
+        id,
+        label: node.textContent.replace(/\s+/g, " ").trim() || id,
+        level: node.attrs.level as number,
+      });
+    });
+
+    if (headings.length === 0) {
+      onUploadError("Add an H2 or H3 heading before creating a jump link.");
+      return;
+    }
+
+    const answer = window.prompt(
+      [
+        "Choose a heading number:",
+        ...headings.map(
+          (heading, index) => `${index + 1}. H${heading.level} - ${heading.label}`,
+        ),
+      ].join("\n"),
+    );
+    if (!answer) return;
+
+    const targetHeading = headings[Number.parseInt(answer, 10) - 1];
+    if (!targetHeading) {
+      onUploadError("Choose a valid heading number.");
+      return;
+    }
+
+    const href = `#${targetHeading.id}`;
+    const chain = editor.chain().focus();
+
+    if (editor.state.selection.empty) {
+      chain
+        .insertContent({
+          type: "text",
+          text: targetHeading.label,
+          marks: [
+            {
+              type: "link",
+              attrs: {
+                href,
+                target: null,
+                rel: null,
+              },
+            },
+          ],
+        })
+        .run();
+      return;
+    }
+
+    chain
+      .extendMarkRange("link")
+      .setLink({
+        href,
+        target: null,
+        rel: null,
+      })
+      .run();
+  };
+
+  const increaseIndent = () => {
+    if (!editor) return;
+
+    if (editor.isActive("listItem") && editor.can().sinkListItem("listItem")) {
+      editor.chain().focus().sinkListItem("listItem").run();
+      return;
+    }
+
+    editor.chain().focus().increaseBlockIndent().run();
+  };
+
+  const decreaseIndent = () => {
+    if (!editor) return;
+
+    if (editor.isActive("listItem") && editor.can().liftListItem("listItem")) {
+      editor.chain().focus().liftListItem("listItem").run();
+      return;
+    }
+
+    editor.chain().focus().decreaseBlockIndent().run();
+  };
+
+  const handleImageUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    event.target.value = "";
+    if (!file || !editor) return;
+
+    if (!file.type.startsWith("image/")) {
+      onUploadError("Please choose an image file.");
+      return;
+    }
+
+    setUploadingImage(true);
+
+    const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+    const safePrefix = uploadPathPrefix || "blog/inline";
+    const filePath = `${safePrefix}/content-${Date.now()}.${ext}`;
+    const { error: uploadError } = await supabase.storage
+      .from(CONTENT_IMAGE_BUCKET)
+      .upload(filePath, file, {
+        cacheControl: "3600",
+        upsert: true,
+        contentType: file.type || undefined,
+      });
+
+    if (uploadError) {
+      onUploadError(uploadError.message);
+      setUploadingImage(false);
+      return;
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from(CONTENT_IMAGE_BUCKET)
+      .getPublicUrl(filePath);
+
+    editor
+      .chain()
+      .focus()
+      .setImage({
+        src: publicUrlData.publicUrl,
+        alt: file.name,
+        width: 640,
+      })
+      .run();
+    setUploadingImage(false);
+  };
+
+  const updateSelectedImageWidth = (value: string) => {
+    if (!editor || !editor.isActive("image")) return;
+
+    const imagePosition = editor.state.selection.from;
+
+    editor
+      .chain()
+      .focus()
+      .updateAttributes("image", {
+        width: value === "full" ? null : value,
+      })
+      .setNodeSelection(imagePosition)
+      .run();
+  };
+
+  const selectedImageWidth = editor?.isActive("image")
+    ? sanitizeImageWidth(editor.getAttributes("image").width) ?? "full"
+    : null;
 
   return (
     <div className="grid gap-1 text-sm text-[#7b6d5f]">
       <span>{label}</span>
       <div className="overflow-hidden rounded-2xl border border-[#e3d4c6] bg-white">
         <div className="flex flex-wrap gap-1 border-b border-[#e3d4c6] bg-[#fbf7f1] p-2">
-          <ToolbarButton label="Bold" onClick={() => runCommand("bold")}>
+          <ToolbarButton
+            label="Bold"
+            onClick={() => editor?.chain().focus().toggleBold().run()}
+            active={Boolean(editor?.isActive("bold"))}
+            disabled={!editor}
+          >
             <Bold size={16} strokeWidth={2} />
           </ToolbarButton>
-          <ToolbarButton label="Italic" onClick={() => runCommand("italic")}>
+          <ToolbarButton
+            label="Italic"
+            onClick={() => editor?.chain().focus().toggleItalic().run()}
+            active={Boolean(editor?.isActive("italic"))}
+            disabled={!editor}
+          >
             <Italic size={16} strokeWidth={2} />
           </ToolbarButton>
-          <ToolbarButton label="Underline" onClick={() => runCommand("underline")}>
+          <ToolbarButton
+            label="Underline"
+            onClick={() => editor?.chain().focus().toggleUnderline().run()}
+            active={Boolean(editor?.isActive("underline"))}
+            disabled={!editor}
+          >
             <Underline size={16} strokeWidth={2} />
           </ToolbarButton>
-          <ToolbarButton label="Heading" onClick={() => runCommand("formatBlock", "h2")}>
+          <ToolbarButton
+            label="Heading 2"
+            onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
+            active={Boolean(editor?.isActive("heading", { level: 2 }))}
+            disabled={!editor}
+          >
             <Heading2 size={16} strokeWidth={2} />
           </ToolbarButton>
-          <ToolbarButton label="Paragraph" onClick={() => runCommand("formatBlock", "p")}>
+          <ToolbarButton
+            label="Heading 3"
+            onClick={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}
+            active={Boolean(editor?.isActive("heading", { level: 3 }))}
+            disabled={!editor}
+          >
+            <Heading3 size={16} strokeWidth={2} />
+          </ToolbarButton>
+          <ToolbarButton
+            label="Paragraph"
+            onClick={() => editor?.chain().focus().setParagraph().run()}
+            active={Boolean(editor?.isActive("paragraph"))}
+            disabled={!editor}
+          >
             <Pilcrow size={16} strokeWidth={2} />
           </ToolbarButton>
-          <ToolbarButton label="Quote" onClick={() => runCommand("formatBlock", "blockquote")}>
+          <ToolbarButton
+            label="Quote"
+            onClick={() => editor?.chain().focus().toggleBlockquote().run()}
+            active={Boolean(editor?.isActive("blockquote"))}
+            disabled={!editor}
+          >
             <Quote size={16} strokeWidth={2} />
           </ToolbarButton>
-          <ToolbarButton label="Bulleted list" onClick={() => runCommand("insertUnorderedList")}>
+          <ToolbarButton
+            label="Bulleted list"
+            onClick={() => editor?.chain().focus().toggleBulletList().run()}
+            active={Boolean(editor?.isActive("bulletList"))}
+            disabled={!editor}
+          >
             <List size={16} strokeWidth={2} />
           </ToolbarButton>
-          <ToolbarButton label="Numbered list" onClick={() => runCommand("insertOrderedList")}>
+          <ToolbarButton
+            label="Numbered list"
+            onClick={() => editor?.chain().focus().toggleOrderedList().run()}
+            active={Boolean(editor?.isActive("orderedList"))}
+            disabled={!editor}
+          >
             <ListOrdered size={16} strokeWidth={2} />
           </ToolbarButton>
-          <ToolbarButton label="Link" onClick={addLink}>
+          <ToolbarButton label="Increase indent" onClick={increaseIndent} disabled={!editor}>
+            <IndentIncrease size={16} strokeWidth={2} />
+          </ToolbarButton>
+          <ToolbarButton label="Decrease indent" onClick={decreaseIndent} disabled={!editor}>
+            <IndentDecrease size={16} strokeWidth={2} />
+          </ToolbarButton>
+          <ToolbarButton
+            label="Link"
+            onClick={setExternalLink}
+            active={Boolean(editor?.isActive("link"))}
+            disabled={!editor}
+          >
             <LinkIcon size={16} strokeWidth={2} />
           </ToolbarButton>
-          <ToolbarButton label="Undo" onClick={() => runCommand("undo")}>
+          <ToolbarButton label="Jump link" onClick={addJumpLink} disabled={!editor}>
+            <Anchor size={16} strokeWidth={2} />
+          </ToolbarButton>
+          <ToolbarButton
+            label={uploadingImage ? "Uploading image" : "Insert image"}
+            onClick={() => imageInputRef.current?.click()}
+            disabled={!editor || uploadingImage}
+          >
+            <ImageUp size={16} strokeWidth={2} />
+          </ToolbarButton>
+          <ToolbarButton
+            label="Undo"
+            onClick={() => editor?.chain().focus().undo().run()}
+            disabled={!editor || !editor.can().undo()}
+          >
             <Undo2 size={16} strokeWidth={2} />
           </ToolbarButton>
-          <ToolbarButton label="Redo" onClick={() => runCommand("redo")}>
+          <ToolbarButton
+            label="Redo"
+            onClick={() => editor?.chain().focus().redo().run()}
+            disabled={!editor || !editor.can().redo()}
+          >
             <Redo2 size={16} strokeWidth={2} />
           </ToolbarButton>
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleImageUpload}
+          />
         </div>
-        <div
-          ref={editorRef}
-          contentEditable
-          className="rich-content min-h-[18rem] px-4 py-3 text-sm leading-7 text-[#2f2a24] outline-none empty:before:text-[#b39f8f] empty:before:content-[attr(data-placeholder)]"
-          data-placeholder={placeholder}
-          onKeyDown={handleKeyDown}
-          onInput={syncValue}
-          onBlur={syncValue}
-          suppressContentEditableWarning
-        />
+        {editor ? (
+          <BubbleMenu
+            editor={editor}
+            pluginKey="blog-image-width-menu"
+            updateDelay={0}
+            shouldShow={shouldShowImageBubbleMenu}
+            options={IMAGE_BUBBLE_MENU_OPTIONS}
+            className="z-50 flex items-center gap-1 rounded-2xl border border-[#e3d4c6] bg-white p-1 text-xs text-[#7b6d5f] shadow-[0_12px_30px_rgba(65,43,27,0.14)]"
+          >
+            {IMAGE_WIDTH_CHOICES.map((width) => {
+              const isActive = selectedImageWidth === width;
+              const label = width === "full" ? "Full" : width;
+
+              return (
+                <button
+                  key={width}
+                  type="button"
+                  className={[
+                    "h-8 rounded-xl px-2.5 font-medium transition-colors",
+                    isActive
+                      ? "bg-[#6f4f40] text-white"
+                      : "text-[#6f4f40] hover:bg-[#f7efe6] hover:text-[#2f2a24]",
+                  ].join(" ")}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => updateSelectedImageWidth(width)}
+                  aria-pressed={isActive}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </BubbleMenu>
+        ) : null}
+        <EditorContent editor={editor} />
       </div>
     </div>
   );
@@ -260,6 +934,19 @@ function getStorageObjectPath(url: string) {
   } catch {
     return null;
   }
+}
+
+function getStorageObjectPathsFromContent(value: string) {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  const template = document.createElement("template");
+  template.innerHTML = contentToHtml(value);
+
+  return Array.from(template.content.querySelectorAll<HTMLImageElement>("img"))
+    .map((image) => getStorageObjectPath(image.src))
+    .filter((path): path is string => Boolean(path));
 }
 
 export default function BlogEditorPage() {
@@ -367,6 +1054,9 @@ export default function BlogEditorPage() {
     activeLanguage === "th"
       ? form.title_th.trim() || form.title_en.trim() || "Untitled"
       : form.title_en.trim() || form.title_th.trim() || "Untitled";
+  const inlineImagePathPrefix = `blog/${
+    form.slug.trim() || slugify(previewTitle) || "untitled"
+  }`;
   const coverImageLabel = coverFile
     ? `Selected: ${coverFile.name}`
     : form.cover_image_url
@@ -504,6 +1194,11 @@ export default function BlogEditorPage() {
     if (coverPath) {
       storageObjectPaths.add(coverPath);
     }
+
+    [
+      ...getStorageObjectPathsFromContent(deleteTarget.content_th),
+      ...getStorageObjectPathsFromContent(deleteTarget.content_en),
+    ].forEach((path) => storageObjectPaths.add(path));
 
     const { data: folderItems, error: listError } = await supabase.storage
       .from(CONTENT_IMAGE_BUCKET)
@@ -740,6 +1435,13 @@ export default function BlogEditorPage() {
                   key={activeLanguage}
                   label={activeLanguage === "th" ? "Content TH" : "Content EN"}
                   value={activeLanguage === "th" ? form.content_th : form.content_en}
+                  uploadPathPrefix={inlineImagePathPrefix}
+                  onUploadError={(message) =>
+                    setSaveNotice({
+                      type: "error",
+                      message,
+                    })
+                  }
                   onChange={(value) =>
                     handleFieldChange(
                       activeLanguage === "th" ? "content_th" : "content_en",
