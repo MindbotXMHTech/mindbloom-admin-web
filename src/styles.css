@@ -54,6 +54,14 @@ textarea {
   pointer-events: none;
 }
 
+.rich-content .is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  color: #b39f8f;
+  pointer-events: none;
+}
+
 .rich-content p,
 .rich-content h2,
 .rich-content h3,
@@ -79,6 +87,27 @@ textarea {
   line-height: 1.5;
   font-weight: 700;
   color: var(--text);
+}
+
+.rich-content h2[id],
+.rich-content h3[id] {
+  scroll-margin-top: 96px;
+}
+
+.rich-content [data-indent="1"] {
+  margin-left: 1.5rem;
+}
+
+.rich-content [data-indent="2"] {
+  margin-left: 3rem;
+}
+
+.rich-content [data-indent="3"] {
+  margin-left: 4.5rem;
+}
+
+.rich-content [data-indent="4"] {
+  margin-left: 6rem;
 }
 
 .rich-content ul,
@@ -109,6 +138,20 @@ textarea {
   font-weight: 600;
   text-decoration: underline;
   text-underline-offset: 3px;
+}
+
+.rich-content img {
+  display: block;
+  margin-right: auto;
+  margin-left: auto;
+  max-width: 100%;
+  height: auto;
+  border-radius: 16px;
+}
+
+.rich-content img.ProseMirror-selectednode {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
 }
 
 .meta,
